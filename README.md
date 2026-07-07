@@ -90,6 +90,28 @@ xmake build lunet-postgres
 # copy build/<platform>/<arch>/release/lunet/postgres.so to bin/lunet/postgres.so
 ```
 
+## Docker
+
+The image is pure lunet — no nginx, no OpenResty. A builder stage compiles the whole lunet
+stack (core, sqlite3 and postgres drivers) from source via `xmake` for whatever platform is
+building, plus `cjson` via luarocks; the runtime stage only carries the shared libraries those
+binaries link against.
+
+```bash
+docker build -t realworld-lua .
+
+docker run --rm -p 8081:8081 \
+  -e PGHOST=... -e PGPORT=5432 -e PGDATABASE=realworld -e PGUSER=... -e PGPASSWORD=... \
+  -e JWT_SECRET=... \
+  realworld-lua
+```
+
+lunet refuses to bind a listening socket to a non-loopback address unless told the container
+boundary is the intended security perimeter, so the image's `CMD` passes
+`--dangerously-skip-loopback-restriction` to `lunet-run` — required for the standard
+`-p containerPort:hostPort` pattern, since the server has to listen on `0.0.0.0` inside the
+container for the port mapping to reach it.
+
 ## Load testing
 
 `make load-test` runs [specs/run-load-tests.sh](specs/run-load-tests.sh) (POSIX sh, requires

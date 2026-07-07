@@ -70,8 +70,10 @@ RUN mkdir -p target
 # Database config is supplied at run time: docker run --env-file .env
 # 0.0.0.0 so the container's port mapping can reach the server (server.lua
 # defaults to 127.0.0.1, correct for bare-metal local dev but not for a
-# container's isolated network namespace)
+# container's isolated network namespace). lunet-run refuses to bind
+# non-loopback addresses unless told the container boundary is the intended
+# security perimeter.
 ENV LUNET_HOST=0.0.0.0
 EXPOSE 8081
 
-CMD ["./bin/lunet-run", "server.lua"]
+CMD ["./bin/lunet-run", "--dangerously-skip-loopback-restriction", "server.lua"]
