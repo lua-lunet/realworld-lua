@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise exec -- lua-language-server --check . --checklevel=Warning
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: realworld
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply schema
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d realworld -f sql/schema.sql
+
+      - name: Build image (pure lunet, no nginx/OpenResty)
+        run: docker build -t realworld-lunet-lua .
+
+      - name: Start server against the Postgres service
+        run: |
+          docker run -d --name app --network host \
+            -e PGHOST=localhost -e PGPORT=5432 -e PGDATABASE=realworld -e PGUSER=postgres -e PGPASSWORD=postgres \
+            -e JWT_SECRET=ci-test-secret-not-for-production \
+            realworld-lunet-lua
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8081/health && exit 0
+            sleep 1
+          done
+          echo "server did not become healthy in time" >&2
+          exit 1
+
+      - uses: jdx/mise-action@v2
+
+      - name: Run RealWorld Hurl compatibility suite
+        run: HOST=http://localhost:8081 mise exec -- bash specs/run-api-tests-hurl.sh
+
+      - name: Server logs
+        if: always()
+        run: docker logs app || true

@@ -1,43 +1,77 @@
+# Builder: compiles the whole lunet stack from source via xmake for whatever
+# platform this build targets (no dependency on a specific release tarball
+# arch — this stage builds natively for the host's default platform).
+FROM debian:trixie-slim AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG LUNET_VERSION=v0.3.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        build-essential \
+        pkg-config \
+        libpq-dev \
+        libsodium-dev \
+        libuv1-dev \
+        libsqlite3-dev \
+        lua5.1 \
+        liblua5.1-0-dev \
+        luajit \
+        libluajit-5.1-dev \
+        luarocks \
+        xmake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+ENV XMAKE_ROOT=y
+
+RUN git clone --depth 1 --branch "${LUNET_VERSION}" https://github.com/lua-lunet/lunet lunet-src \
+    && cd lunet-src \
+    && xmake f -m release --lunet_trace=n --lunet_verbose_trace=n -y \
+    && xmake build lunet \
+    && xmake build lunet-bin \
+    && xmake build lunet-sqlite3 \
+    && xmake build lunet-postgres \
+    && mkdir -p /out/bin/lunet \
+    && find / -xdev -name lunet-run -exec cp {} /out/bin/lunet-run \; \
+    && find / -xdev -name lunet.so -exec cp {} /out/bin/lunet.so \; \
+    && find / -xdev -name sqlite3.so -exec cp {} /out/bin/lunet/sqlite3.so \; \
+    && find / -xdev -name postgres.so -exec cp {} /out/bin/lunet/postgres.so \;
+
+# cjson, built via luarocks against the system Lua 5.1 headers (loads fine under LuaJIT)
+RUN luarocks --lua-version=5.1 install lua-cjson --tree=/out/luarocks \
+    && cp /out/luarocks/lib/lua/5.1/cjson.so /out/bin/cjson.so
+
+# Runtime: only the shared libraries the vendored .so files link against
 FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Debian-packaged nginx + lua-nginx-module stack (patched under Trixie LTS),
-# plus luarocks for the libraries Debian does not package (lua-cjson comes from
-# LuaRocks too: the OpenResty fork with encode_empty_table_as_object, which
-# Debian's upstream-flavored lua-cjson lacks)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        nginx \
-        libnginx-mod-http-lua \
-        luajit \
-        luarocks \
-        liblua5.1-0-dev \
-        libargon2-1 \
+        libpq5 \
+        libsodium23 \
+        libuv1 \
+        libsqlite3-0 \
+        libluajit-5.1-2 \
         ca-certificates \
-        gcc \
-        libc6-dev \
-        libargon2-dev \
-        git \
-    && luarocks --lua-version=5.1 install lua-cjson \
-    && luarocks --lua-version=5.1 install lua-resty-string \
-    && luarocks --lua-version=5.1 install pgmoon \
-    && luarocks --lua-version=5.1 install lua-resty-jwt \
-    && luarocks --lua-version=5.1 install argon2 \
-    && apt-get purge -y gcc libc6-dev libargon2-dev liblua5.1-0-dev git \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && sodium_lib="$(ldconfig -p | grep -m1 libsodium.so | awk '{print $NF}')" \
+    && ln -s "$sodium_lib" "$(dirname "$sodium_lib")/libsodium.so"
 
 WORKDIR /app
 
+COPY --from=builder /out/bin ./bin
 COPY . .
 
-# modules-enabled confs reference "modules/" relative to the nginx prefix (-p /app)
-RUN mkdir -p target && ln -s /usr/lib/nginx/modules modules
+RUN mkdir -p target
 
 # Database config is supplied at run time: docker run --env-file .env
-ENV LUA_PATH="./app/?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua;;" \
-    LUA_CPATH="/usr/local/lib/lua/5.1/?.so;;"
-
+# 0.0.0.0 so the container's port mapping can reach the server (server.lua
+# defaults to 127.0.0.1, correct for bare-metal local dev but not for a
+# container's isolated network namespace)
+ENV LUNET_HOST=0.0.0.0
 EXPOSE 8081
 
-CMD ["nginx", "-p", "/app", "-c", "nginx.conf", "-g", "daemon off;"]
+CMD ["./bin/lunet-run", "server.lua"]
