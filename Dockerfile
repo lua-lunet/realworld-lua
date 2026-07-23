@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# Pure binary-dependency build: no xmake, no from-source lunet build.
+# Pure binary-dependency build: no xmake, no cargo, no toolchain.
 #
-# Stage 1 fetches the tagged lunet release archive (lunet-run + lunet.so +
-# drivers) and cargo-builds the two ext/ modules that are not shipped in the
-# archive (lnt_shared, jsonic) — the same steps `make deps` runs locally.
-# Stage 2 carries only runtime shared libraries and the app.
+# Stage 1 fetches the tagged lunet release archive — since v0.4.4 it carries
+# the drivers and the lnt_shared/jsonic ext modules, the same artifact
+# `make deps` downloads locally. Stage 2 carries only runtime shared
+# libraries and the app.
 #
 # The release only publishes a linux-amd64 archive, so the image is pinned to
 # that platform (on Apple Silicon, Docker builds it under emulation; CI on
@@ -13,20 +13,17 @@
 FROM --platform=linux/amd64 debian:trixie-slim AS deps
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG LUNET_VERSION=v0.4.3
+ARG LUNET_VERSION=v0.4.4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        git \
-        cargo \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY scripts/deps.sh scripts/deps.sh
 RUN LUNET_VERSION="$LUNET_VERSION" \
     LUNET_ASSET=lunet-linux-amd64.tar.gz \
-    LUNET_LIBSUFFIX=so \
     ./scripts/deps.sh
 
 # Runtime: only the shared libraries the vendored .so files link against

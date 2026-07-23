@@ -66,7 +66,7 @@ All runtime state (pid file, logs) lives under `target/`, so the working tree st
 
 ## Getting started
 
-Requires PostgreSQL, [mise](https://mise.jdx.dev/) (which provides hurl and lua-language-server), and Rust/cargo (used once, to build two small lunet `ext/` modules — see below).
+Requires PostgreSQL and [mise](https://mise.jdx.dev/) (which provides hurl and lua-language-server). No compiler or toolchain is needed — lunet is consumed as a prebuilt binary release.
 
 ```bash
 cp .env.example .env   # or create .env with PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, JWT_SECRET
@@ -83,24 +83,22 @@ make clean     # remove runtime files in target/
 
 ## Binary dependencies (`bin/`)
 
-Nothing here is compiled from a full lunet source checkout — there is no xmake
-step anywhere. `make deps` ([scripts/deps.sh](scripts/deps.sh)) populates `bin/` in
-seconds:
+Nothing here is compiled — there is no xmake or cargo step anywhere. `make deps`
+([scripts/deps.sh](scripts/deps.sh)) downloads the tagged release archive (`v0.4.4`)
+from [lunet releases](https://github.com/lua-lunet/lunet/releases) and extracts it
+into `bin/` in seconds. The archive carries everything the app needs:
 
-1. Downloads the tagged release archive (`v0.4.3`) from
-   [lunet releases](https://github.com/lua-lunet/lunet/releases) and extracts it into `bin/`:
-   `lunet-run`, `lunet.so`, and the drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`.
-   `lunet-run` resolves its core library and drivers relative to its own location, so the
-   archive layout is kept as-is.
-2. Builds the two `ext/` modules that are **not** shipped in the archive —
-   `lnt_shared` and `jsonic` — which are each standalone Rust crates:
-   `cargo build --release` inside `ext/lnt_shared` and `ext/jsonic` of a shallow clone.
-   Each module's Lua loader resolves its compiled library relative to the loader's own
-   directory, so the pairs stay co-located in `bin/lunet/`:
-   - `bin/lunet/lnt_shared.lua` + `bin/lunet/liblnt_shared.{dylib,so}`
-   - `bin/lunet/jsonic.lua` + `bin/lunet/dkjson-encode-v2.10.lua` + `bin/lunet/liblunet_jsonic.{dylib,so}`
-3. `server.lua` adds `./bin/?.lua` to `package.path` so `require("lunet.lnt_shared")` and
-   `require("lunet.jsonic")` find those loaders.
+- `lunet-run` + `lunet.so` — `lunet-run` resolves its core library and drivers
+  relative to its own location, so the archive layout is kept as-is
+- the drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`
+- the `lnt_shared` and `jsonic` ext modules (shipped in the archive since v0.4.4,
+  see [lunet#115](https://github.com/lua-lunet/lunet/issues/115)): each module's Lua
+  loader resolves its compiled library relative to the loader's own directory —
+  `lunet/lnt_shared.lua` + `lunet/liblnt_shared.{dylib,so}` and
+  `lunet/jsonic.lua` + `lunet/dkjson-encode-v2.10.lua` + `lunet/liblunet_jsonic.{dylib,so}`
+
+`server.lua` adds `./bin/?.lua` to `package.path` so `require("lunet.lnt_shared")` and
+`require("lunet.jsonic")` find those loaders.
 
 Runtime shared-library dependencies of the release binaries (already present if you
 previously built lunet from source):
@@ -113,10 +111,11 @@ previously built lunet from source):
 
 ## Docker
 
-The image is pure lunet — no nginx, no OpenResty, and **no xmake/from-source build**. The
-builder stage runs the same `scripts/deps.sh` as local dev (release archive + the two cargo
-builds); the runtime stage carries only the shared libraries the binaries link against. Since
-lunet publishes a `linux-amd64` archive only, the image is pinned to that platform.
+The image is pure lunet — no nginx, no OpenResty, and **no toolchain at all** (no xmake,
+no cargo). The builder stage runs the same `scripts/deps.sh` as local dev (just
+`curl | tar`); the runtime stage carries only the shared libraries the binaries link
+against. Since lunet publishes a `linux-amd64` archive only, the image is pinned to that
+platform.
 
 ```bash
 docker build -t realworld-lua .
