@@ -1,7 +1,10 @@
 -- Conduit API - RealWorld Example Application
 -- Built with lunet (libuv + LuaJIT coroutine runtime)
 
-package.path = "./app/?.lua;./lib/?.lua;./compat/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./lib/?.lua;./compat/?.lua;./bin/?.lua;./?.lua;" .. package.path
+-- lunet-run already prepends <exe-dir>/?.so and <exe-dir>/lunet/?.so to
+-- package.cpath; keep the explicit entries so the layout also works when the
+-- app is launched any other way.
 package.cpath = "./bin/?.so;./bin/lunet/?.so;" .. package.cpath
 
 io.stdout:setvbuf("no")
@@ -13,6 +16,7 @@ local ngx_context = require("ngx_context")
 
 local config = require("config")
 local router = require("router")
+local metrics = require("metrics")
 require("routes") -- registers all routes with the router
 
 local env_config, config_errors = config.resolve()
@@ -34,8 +38,10 @@ end
 
 -- Mirrors nginx.conf's three locations: `/health`, `/`, and `^~ /api/`
 local function handle_request(request)
+    metrics.count_request(request.method)
+
     if request.method == "GET" and request.path == "/health" then
-        return http.json_response(200, { status = "ok" })
+        return http.json_response(200, { status = "ok", requests = metrics.snapshot() })
     end
 
     if request.method == "GET" and request.path == "/" then

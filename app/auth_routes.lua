@@ -4,7 +4,7 @@
 local router = require("router")
 local jwt = require("jwt")
 
-local json = require("cjson")
+local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")
 
@@ -12,7 +12,7 @@ local JWT_EXPIRY = 3600  -- 1 hour in seconds
 
 -- LuaJIT is Lua 5.1: unpack is global there, table.unpack on 5.2-compat builds
 local unpack = table.unpack or unpack
-local JSON_NULL = json.null  -- Use cjson's null value for JSON encoding
+local JSON_NULL = json.null  -- JSON null sentinel for decode/encode round-trips
 
 local json_response = web.json_response
 local error_response = web.error_response

@@ -2,7 +2,7 @@
 -- Handles article CRUD, tags, favorites
 
 local router = require("router")
-local json = require("cjson")
+local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")
 local crypto = require("lib.crypto")

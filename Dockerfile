@@ -1,54 +1,41 @@
-# Builder: compiles the whole lunet stack from source via xmake for whatever
-# platform this build targets (no dependency on a specific release tarball
-# arch — this stage builds natively for the host's default platform).
-FROM debian:trixie-slim AS builder
+# syntax=docker/dockerfile:1
+#
+# Pure binary-dependency build: no xmake, no from-source lunet build.
+#
+# Stage 1 fetches the tagged lunet release archive (lunet-run + lunet.so +
+# drivers) and cargo-builds the two ext/ modules that are not shipped in the
+# archive (lnt_shared, jsonic) — the same steps `make deps` runs locally.
+# Stage 2 carries only runtime shared libraries and the app.
+#
+# The release only publishes a linux-amd64 archive, so the image is pinned to
+# that platform (on Apple Silicon, Docker builds it under emulation; CI on
+# amd64 is native).
+FROM --platform=linux/amd64 debian:trixie-slim AS deps
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG LUNET_VERSION=v0.3.1
+ARG LUNET_VERSION=v0.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
-        build-essential \
-        pkg-config \
-        libpq-dev \
-        libsodium-dev \
-        libuv1-dev \
-        libsqlite3-dev \
-        lua5.1 \
-        liblua5.1-0-dev \
-        luajit \
-        libluajit-5.1-dev \
-        luarocks \
-        xmake \
+        cargo \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
-ENV XMAKE_ROOT=y
-
-RUN git clone --depth 1 --branch "${LUNET_VERSION}" https://github.com/lua-lunet/lunet lunet-src \
-    && cd lunet-src \
-    && xmake f -m release --lunet_trace=n --lunet_verbose_trace=n -y \
-    && xmake build lunet \
-    && xmake build lunet-bin \
-    && xmake build lunet-sqlite3 \
-    && xmake build lunet-postgres \
-    && mkdir -p /out/bin/lunet \
-    && find / -xdev -name lunet-run -exec cp {} /out/bin/lunet-run \; \
-    && find / -xdev -name lunet.so -exec cp {} /out/bin/lunet.so \; \
-    && find / -xdev -name sqlite3.so -exec cp {} /out/bin/lunet/sqlite3.so \; \
-    && find / -xdev -name postgres.so -exec cp {} /out/bin/lunet/postgres.so \;
-
-# cjson, built via luarocks against the system Lua 5.1 headers (loads fine under LuaJIT)
-RUN luarocks --lua-version=5.1 install lua-cjson --tree=/out/luarocks \
-    && cp /out/luarocks/lib/lua/5.1/cjson.so /out/bin/cjson.so
+WORKDIR /app
+COPY scripts/deps.sh scripts/deps.sh
+RUN LUNET_VERSION="$LUNET_VERSION" \
+    LUNET_ASSET=lunet-linux-amd64.tar.gz \
+    LUNET_LIBSUFFIX=so \
+    ./scripts/deps.sh
 
 # Runtime: only the shared libraries the vendored .so files link against
-FROM debian:trixie-slim
+FROM --platform=linux/amd64 debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# libsodium needs an unversioned symlink for FFI loads (ffi.load("sodium")):
+# apt's libsodium23 ships only the versioned libsodium.so.23.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         libsodium23 \
@@ -62,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=builder /out/bin ./bin
+COPY --from=deps /app/bin ./bin
 COPY . .
 
 RUN mkdir -p target

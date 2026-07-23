@@ -2,7 +2,7 @@
 -- Handles profile retrieval, follow/unfollow
 
 local router = require("router")
-local json = require("cjson")
+local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")
 

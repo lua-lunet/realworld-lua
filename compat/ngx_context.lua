@@ -5,7 +5,7 @@
 -- concurrent requests handled by different lunet coroutines never share
 -- mutable state (status/header/body buffer).
 
-local cjson = require("cjson")
+local json = require("lunet.jsonic")
 
 local ngx_context = {}
 
@@ -24,7 +24,7 @@ function ngx_context.new_context(request)
         status = 200,
         header = {},
         ctx = {},
-        null = cjson.null,
+        null = json.null,
 
         req = {
             get_method = function() return request.method end,

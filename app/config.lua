@@ -1,7 +1,7 @@
 -- Config module - Centralized environment variable resolution
 -- Single point of truth for all environment variable access
 
-local json = require("cjson")
+local json = require("lunet.jsonic")
 local dotenv = require("dotenv")
 
 -- Static definition of required environment variables

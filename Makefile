@@ -2,6 +2,9 @@ all: init lint start test
 
 PID_FILE = target/lunet.pid
 
+deps:
+	@./scripts/deps.sh
+
 init:
 	@echo "Checking dependencies..."
 	@command -v mise >/dev/null 2>&1 || { echo "ERROR: mise is not installed. Please install: curl https://mise.run | sh"; exit 1; }
@@ -11,7 +14,7 @@ init:
 	@echo "  mise tools: OK"
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not installed. Please install: brew install curl"; exit 1; }
 	@echo "  curl: OK"
-	@test -x bin/lunet-run || { echo "ERROR: bin/lunet-run not found. See https://github.com/lua-lunet/lunet releases."; exit 1; }
+	@test -x bin/lunet-run || ./scripts/deps.sh
 	@echo "  lunet-run: OK"
 	@mise exec -- hurl --version 2>/dev/null | grep -qE ' 8\.' || { echo "ERROR: hurl 8.x is required (via mise)."; exit 1; }
 	@echo "  hurl: OK"
@@ -88,6 +91,7 @@ clean:
 help:
 	@echo "Available targets:"
 	@echo ""
+	@echo "  make deps     - Fetch lunet binary release + build ext modules into bin/"
 	@echo "  make init     - Check dependencies and initialize the database"
 	@echo "  make lint     - Run lua-language-server static analysis"
 	@echo "  make start    - Start the lunet server on port 8081"
@@ -102,4 +106,4 @@ help:
 	@echo "  make help     - Show this help message"
 	@echo ""
 
-.PHONY: all init lint start stop restart status test load-test db-reset clean help
+.PHONY: all deps init lint start stop restart status test load-test db-reset clean help

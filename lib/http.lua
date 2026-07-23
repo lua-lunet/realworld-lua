@@ -113,7 +113,7 @@ end
 
 -- JSON response helper
 function http.json_response(status, data)
-    local json = require("cjson")
+    local json = require("lunet.jsonic")
     local body = json.encode(data)
     return http.response(status, { ["Content-Type"] = "application/json" }, body)
 end

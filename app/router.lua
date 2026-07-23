@@ -1,9 +1,10 @@
 -- Router module for OpenResty/LuaJIT
 -- Provides routing with :param extraction and JSON responses
 
-local json = require("cjson")
--- Empty collections (tagList, articles, comments, tags) must encode as [] not {}
-json.encode_empty_table_as_object(false)
+-- lunet.jsonic: fast Rust-backed decode, dkjson encode. dkjson encodes empty
+-- tables as [] by default, which is what the RealWorld spec wants for empty
+-- collections (tagList, articles, comments, tags).
+local json = require("lunet.jsonic")
 
 local router = {}
 

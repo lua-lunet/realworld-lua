@@ -2,6 +2,9 @@
 .env*
 !.env.example
 
+# Vendored lunet binaries (fetched by scripts/deps.sh / make deps)
+bin/
+
 # Runtime files (pid, logs, nginx temp dirs)
 target/*
 !target/.keep

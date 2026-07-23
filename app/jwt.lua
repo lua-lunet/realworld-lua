@@ -3,7 +3,9 @@
 -- including resty.jwt's automatic expiry ("exp") validation on decode
 
 local crypto = require("lib.crypto")
-local cjson = require("cjson")
+-- lunet.jsonic decode returns nil + err on invalid JSON (it does not raise),
+-- so the pcall results below must also be type-checked before indexing.
+local json = require("lunet.jsonic")
 
 local jwt = {}
 
@@ -29,8 +31,8 @@ function jwt.encode(payload, secret, algorithm)
     end
 
     local header = { typ = "JWT", alg = algorithm }
-    local header_b64 = crypto.base64_encode(cjson.encode(header), true)
-    local payload_b64 = crypto.base64_encode(cjson.encode(payload), true)
+    local header_b64 = crypto.base64_encode(json.encode(header), true)
+    local payload_b64 = crypto.base64_encode(json.encode(payload), true)
     local message = header_b64 .. "." .. payload_b64
     local signature_b64 = crypto.base64_encode(crypto.hmac_sha256(message, secret), true)
 
@@ -63,14 +65,14 @@ function jwt.decode(token, secret)
     end
 
     local header_json = crypto.base64_decode(header_b64, true)
-    local header_ok, header = pcall(cjson.decode, header_json)
-    if not header_ok or header.alg ~= "HS256" then
+    local header_ok, header = pcall(json.decode, header_json)
+    if not header_ok or type(header) ~= "table" or header.alg ~= "HS256" then
         return nil, "Invalid header"
     end
 
     local payload_json = crypto.base64_decode(payload_b64, true)
-    local payload_ok, payload = pcall(cjson.decode, payload_json)
-    if not payload_ok then
+    local payload_ok, payload = pcall(json.decode, payload_json)
+    if not payload_ok or type(payload) ~= "table" then
         return nil, "Invalid payload"
     end
 

@@ -19,14 +19,15 @@ sequenceDiagram
     Server->>Lua: router.handle(ctx) — one lunet coroutine per connection
     Lua->>PostgreSQL: lunet.postgres (libuv thread pool, coroutine-safe)
     PostgreSQL-->>Lua: rows
-    Lua-->>Server: JSON (cjson)
+    Lua-->>Server: JSON (lunet.jsonic)
     Server-->>Client: HTTP response
 ```
 
 - **lunet**: standalone libuv + LuaJIT runtime — no nginx, no OpenResty; `server.lua` runs its own accept loop with `lunet.socket`, spawning one coroutine per connection
 - **lunet.postgres**: native PostgreSQL driver built on libpq; queries run on libuv's thread pool so a slow query never blocks the event loop
 - **lib/crypto.lua**: libsodium via LuaJIT FFI — Argon2id password hashing, HMAC-SHA256 for JWT signing, base64url, CSPRNG
-- **cjson**: JSON encoding/decoding
+- **lunet.jsonic**: fast Rust-backed JSON decoding with a bundled dkjson encoder (API-compatible for this app's `encode`/`decode`/`null` usage)
+- **lunet.lnt_shared**: sharded in-process dictionary with atomic counters — backs the request metrics exposed on `/health` ([app/metrics.lua](app/metrics.lua))
 - **Custom router** ([app/router.lua](app/router.lua)): a small routing table with `:param` extraction, driven by a per-request context object ([compat/ngx_context.lua](compat/ngx_context.lua)) rather than a global — safe under concurrent coroutines
 - **Custom HTTP parsing** ([lib/http.lua](lib/http.lua)): request/response (de)serialization over raw sockets
 
@@ -46,6 +47,7 @@ sequenceDiagram
 │   ├── db.lua              # SQL queries via lunet.postgres
 │   ├── jwt.lua              # HS256 JWT encode/decode, built on lib/crypto
 │   ├── password.lua        # Argon2id hashing, built on lib/crypto
+│   ├── metrics.lua         # Request counters via lunet.lnt_shared, exposed on /health
 │   ├── config.lua          # Environment variable resolution
 │   └── dotenv.lua          # .env file loader
 ├── lib/
@@ -53,7 +55,8 @@ sequenceDiagram
 │   └── http.lua            # HTTP request parsing / response building
 ├── compat/
 │   └── ngx_context.lua     # Per-connection request context passed into router.handle()
-├── bin/                     # Vendored lunet binaries (lunet-run, lunet.so, driver .so files)
+├── scripts/deps.sh          # Fetches the lunet binary release + builds ext modules into bin/
+├── bin/                     # lunet binaries (gitignored; created by make deps)
 ├── sql/schema.sql          # PostgreSQL schema
 ├── specs/                  # RealWorld Hurl compatibility suite + OpenAPI spec
 └── target/                 # Runtime files: pid, logs, local Postgres data dir (gitignored)
@@ -63,11 +66,12 @@ All runtime state (pid file, logs) lives under `target/`, so the working tree st
 
 ## Getting started
 
-Requires PostgreSQL and [mise](https://mise.jdx.dev/) (which provides hurl and lua-language-server). The `bin/` directory ships prebuilt lunet binaries for macOS (from the [lunet releases](https://github.com/lua-lunet/lunet/releases)); the PostgreSQL driver (`bin/lunet/postgres.so`) isn't in lunet's release tarballs and is built from source — see [Building lunet-postgres](#building-lunet-postgres) if you need to rebuild it for a different platform.
+Requires PostgreSQL, [mise](https://mise.jdx.dev/) (which provides hurl and lua-language-server), and Rust/cargo (used once, to build two small lunet `ext/` modules — see below).
 
 ```bash
 cp .env.example .env   # or create .env with PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, JWT_SECRET
 
+make deps      # fetch lunet binaries into bin/ (seconds; no xmake)
 make init      # check dependencies, load sql/schema.sql
 make start     # start the server on port 8081
 make test      # run the RealWorld API compatibility suite (Hurl)
@@ -77,25 +81,42 @@ make stop      # stop the server
 make clean     # remove runtime files in target/
 ```
 
-## Building lunet-postgres
+## Binary dependencies (`bin/`)
 
-lunet's release tarballs only ship the SQLite3 driver; the PostgreSQL driver is a separate `xmake` target built from the [lunet](https://github.com/lua-lunet/lunet) source:
+Nothing here is compiled from a full lunet source checkout — there is no xmake
+step anywhere. `make deps` ([scripts/deps.sh](scripts/deps.sh)) populates `bin/` in
+seconds:
 
-```bash
-git clone https://github.com/lua-lunet/lunet /tmp/lunet-src
-cd /tmp/lunet-src
-export PKG_CONFIG_PATH="$(pkg-config --variable=libdir libpq)/pkgconfig:$PKG_CONFIG_PATH"  # if libpq is keg-only
-xmake f -m release --lunet_trace=n --lunet_verbose_trace=n -y
-xmake build lunet-postgres
-# copy build/<platform>/<arch>/release/lunet/postgres.so to bin/lunet/postgres.so
-```
+1. Downloads the tagged release archive (`v0.4.3`) from
+   [lunet releases](https://github.com/lua-lunet/lunet/releases) and extracts it into `bin/`:
+   `lunet-run`, `lunet.so`, and the drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`.
+   `lunet-run` resolves its core library and drivers relative to its own location, so the
+   archive layout is kept as-is.
+2. Builds the two `ext/` modules that are **not** shipped in the archive —
+   `lnt_shared` and `jsonic` — which are each standalone Rust crates:
+   `cargo build --release` inside `ext/lnt_shared` and `ext/jsonic` of a shallow clone.
+   Each module's Lua loader resolves its compiled library relative to the loader's own
+   directory, so the pairs stay co-located in `bin/lunet/`:
+   - `bin/lunet/lnt_shared.lua` + `bin/lunet/liblnt_shared.{dylib,so}`
+   - `bin/lunet/jsonic.lua` + `bin/lunet/dkjson-encode-v2.10.lua` + `bin/lunet/liblunet_jsonic.{dylib,so}`
+3. `server.lua` adds `./bin/?.lua` to `package.path` so `require("lunet.lnt_shared")` and
+   `require("lunet.jsonic")` find those loaders.
+
+Runtime shared-library dependencies of the release binaries (already present if you
+previously built lunet from source):
+
+- **macOS** (the release links against Homebrew kegs): `brew install luajit libuv libpq libsodium`
+- **Debian/Ubuntu**: `apt install libluajit-5.1-2 libuv1 libpq5 libsodium23 libsqlite3-0`
+  (runtime packages only — no `-dev` packages, no toolchain). Note: `libsodium23` ships only
+  the versioned `libsodium.so.23`; FFI users need an unversioned `libsodium.so` symlink, which
+  the [Dockerfile](Dockerfile) runtime stage creates.
 
 ## Docker
 
-The image is pure lunet — no nginx, no OpenResty. A builder stage compiles the whole lunet
-stack (core, sqlite3 and postgres drivers) from source via `xmake` for whatever platform is
-building, plus `cjson` via luarocks; the runtime stage only carries the shared libraries those
-binaries link against.
+The image is pure lunet — no nginx, no OpenResty, and **no xmake/from-source build**. The
+builder stage runs the same `scripts/deps.sh` as local dev (release archive + the two cargo
+builds); the runtime stage carries only the shared libraries the binaries link against. Since
+lunet publishes a `linux-amd64` archive only, the image is pinned to that platform.
 
 ```bash
 docker build -t realworld-lua .
