@@ -5,10 +5,11 @@
 -- This is deliberately NOT part of the backend (server.lua): static file IO
 -- does not belong in the API demo. Run it as a second lunet-run instance:
 --
---     ./bin/lunet-run edge/server.lua
+--     ./bin/lunet-run edge.lua
 --
 -- It exists to dogfood the lunet binary release as a statics+proxy edge, the
--- role nginx would play in a real deployment (see edge/README.md). Demo-grade:
+-- role nginx would play in a real deployment (see README.md, "Frontend").
+-- Demo-grade:
 -- requests are read in a single shot and every connection is closed after its
 -- response — fine on loopback, not a production server.
 

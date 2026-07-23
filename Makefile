@@ -62,7 +62,7 @@ frontend:
 		echo "Edge already running (PID $$(cat $(EDGE_PID_FILE)))."; \
 	else \
 		mkdir -p target; \
-		nohup ./bin/lunet-run edge/server.lua > target/edge.log 2>&1 & \
+		nohup ./bin/lunet-run edge.lua > target/edge.log 2>&1 & \
 		echo $$! > $(EDGE_PID_FILE); \
 		sleep 1; \
 		curl -fsS http://localhost:8083/ >/dev/null \

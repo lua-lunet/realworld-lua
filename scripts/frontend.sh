@@ -4,7 +4,7 @@
 # Source: https://github.com/daodao-bot/realworld-html-js-simple (Unlicense) —
 # plain HTML pages + fetch()-based JS, no framework and no build step, written
 # to be served by nginx doing statics + API proxying (see its
-# nginx/default.conf, which edge/server.lua mirrors). Perfect demo fodder:
+# nginx/default.conf, which edge.lua mirrors). Perfect demo fodder:
 # clearly not production UI, exactly production-shaped traffic.
 #
 # One patch is applied at fetch time: the API base URL default in js/api.js is

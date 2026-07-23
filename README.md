@@ -55,8 +55,8 @@ sequenceDiagram
 │   └── http.lua            # HTTP request parsing / response building
 ├── compat/
 │   └── ngx_context.lua     # Per-connection request context passed into router.handle()
-├── edge/
-│   └── server.lua           # Optional second lunet instance: serves the frontend + proxies /api
+├── edge.lua                 # Optional second lunet instance: serves the frontend + proxies /api
+├── edge/public/             # Prebuilt frontend assets (gitignored; fetched by make frontend)
 ├── scripts/
 │   ├── deps.sh              # Fetches the lunet binary release into bin/
 │   └── frontend.sh          # Fetches the prebuilt frontend into edge/public/
@@ -140,7 +140,7 @@ container for the port mapping to reach it.
 
 The backend deliberately does no static file IO — in a real deployment that role belongs to
 nginx in front of lunet. For local demos there is instead a **second, standalone lunet
-instance** ([edge/server.lua](edge/server.lua)) playing the edge role, started with the same
+instance** ([edge.lua](edge.lua)) playing the edge role, started with the same
 vendored binary:
 
 ```bash
@@ -156,7 +156,7 @@ Then open <http://localhost:8083/>. The page talks to the API same-origin: the e
   dumbest prebuilt that still exercises the whole API. [scripts/frontend.sh](scripts/frontend.sh)
   pins it by commit and applies two fetch-time patches: API base → same-origin `/api`, and
   the dead theme-CDN link → a vendored copy of the classic Conduit CSS.
-- `edge/server.lua` mirrors the frontend's reference `nginx/default.conf`: statics with
+- `edge.lua` mirrors the frontend's reference `nginx/default.conf`: statics with
   extensionless/SPA fallbacks (`/article/*` → `article.html` etc.), one-pass SSI for the
   pages' `<!--#include -->` partials, and the `/api` relay. Demo-grade (single-shot request
   reads, one connection per request) — it exists to dogfood the binary release as a
