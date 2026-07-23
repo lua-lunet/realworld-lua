@@ -55,7 +55,11 @@ sequenceDiagram
 │   └── http.lua            # HTTP request parsing / response building
 ├── compat/
 │   └── ngx_context.lua     # Per-connection request context passed into router.handle()
-├── scripts/deps.sh          # Fetches the lunet binary release + builds ext modules into bin/
+├── edge/
+│   └── server.lua           # Optional second lunet instance: serves the frontend + proxies /api
+├── scripts/
+│   ├── deps.sh              # Fetches the lunet binary release into bin/
+│   └── frontend.sh          # Fetches the prebuilt frontend into edge/public/
 ├── bin/                     # lunet binaries (gitignored; created by make deps)
 ├── sql/schema.sql          # PostgreSQL schema
 ├── specs/                  # RealWorld Hurl compatibility suite + OpenAPI spec
@@ -131,6 +135,34 @@ boundary is the intended security perimeter, so the image's `CMD` passes
 `--dangerously-skip-loopback-restriction` to `lunet-run` — required for the standard
 `-p containerPort:hostPort` pattern, since the server has to listen on `0.0.0.0` inside the
 container for the port mapping to reach it.
+
+## Frontend (optional edge server)
+
+The backend deliberately does no static file IO — in a real deployment that role belongs to
+nginx in front of lunet. For local demos there is instead a **second, standalone lunet
+instance** ([edge/server.lua](edge/server.lua)) playing the edge role, started with the same
+vendored binary:
+
+```bash
+make frontend       # fetch the prebuilt frontend (first run) and serve it on :8083
+make frontend-stop
+```
+
+Then open <http://localhost:8083/>. The page talks to the API same-origin: the edge proxies
+`/api/*` to the backend on `:8081` as a raw TCP relay, so no CORS and no frontend rebuild.
+
+- The frontend is [daodao-bot/realworld-html-js-simple](https://github.com/daodao-bot/realworld-html-js-simple)
+  (Unlicense): plain HTML pages + `fetch()` JS, **no framework and no build step** — the
+  dumbest prebuilt that still exercises the whole API. [scripts/frontend.sh](scripts/frontend.sh)
+  pins it by commit and applies two fetch-time patches: API base → same-origin `/api`, and
+  the dead theme-CDN link → a vendored copy of the classic Conduit CSS.
+- `edge/server.lua` mirrors the frontend's reference `nginx/default.conf`: statics with
+  extensionless/SPA fallbacks (`/article/*` → `article.html` etc.), one-pass SSI for the
+  pages' `<!--#include -->` partials, and the `/api` relay. Demo-grade (single-shot request
+  reads, one connection per request) — it exists to dogfood the binary release as a
+  statics+proxy edge, not to be a web server.
+- The whole hurl suite also passes **through the edge**:
+  `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
 
 ## Load testing
 

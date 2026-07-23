@@ -1,6 +1,7 @@
 all: init lint start test
 
 PID_FILE = target/lunet.pid
+EDGE_PID_FILE = target/edge.pid
 
 deps:
 	@./scripts/deps.sh
@@ -54,6 +55,32 @@ stop:
 
 restart: stop start
 
+frontend:
+	@./scripts/frontend.sh
+	@test -x bin/lunet-run || ./scripts/deps.sh
+	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
+		echo "Edge already running (PID $$(cat $(EDGE_PID_FILE)))."; \
+	else \
+		mkdir -p target; \
+		nohup ./bin/lunet-run edge/server.lua > target/edge.log 2>&1 & \
+		echo $$! > $(EDGE_PID_FILE); \
+		sleep 1; \
+		curl -fsS http://localhost:8083/ >/dev/null \
+			&& echo "Edge serving the frontend on http://localhost:8083 (PID $$(cat $(EDGE_PID_FILE)))." \
+			|| { echo "ERROR: edge failed to start. See target/edge.log"; exit 1; }; \
+	fi
+
+frontend-stop:
+	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
+		kill $$(cat $(EDGE_PID_FILE)); \
+		while kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; do sleep 1; done; \
+		rm -f $(EDGE_PID_FILE); \
+		echo "Edge stopped."; \
+	else \
+		rm -f $(EDGE_PID_FILE); \
+		echo "Edge is not running."; \
+	fi
+
 status:
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "Server is running (PID $$(cat $(PID_FILE)))."; \
@@ -85,6 +112,10 @@ clean:
 		echo "ERROR: server appears to be running ($(PID_FILE) exists). Run 'make stop' first."; \
 		exit 1; \
 	fi
+	@if [ -f $(EDGE_PID_FILE) ]; then \
+		echo "ERROR: edge appears to be running ($(EDGE_PID_FILE) exists). Run 'make frontend-stop' first."; \
+		exit 1; \
+	fi
 	@find target -mindepth 1 ! -name .keep -delete
 	@echo "Cleaned target/."
 
@@ -99,6 +130,8 @@ help:
 	@echo "  make restart  - Restart the lunet server"
 	@echo "  make status   - Show server status (running/stopped)"
 	@echo "  make test     - Run RealWorld API compatibility tests with Hurl"
+	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083"
+	@echo "  make frontend-stop - Stop the edge server"
 	@echo "  make load-test - Run read-dominated load test with hey (concurrency 1 -> 64)"
 	@echo "  make db-reset - Drop and recreate the database schema"
 	@echo "  make clean    - Remove runtime files in target/ (server must be stopped)"
@@ -106,4 +139,4 @@ help:
 	@echo "  make help     - Show this help message"
 	@echo ""
 
-.PHONY: all deps init lint start stop restart status test load-test db-reset clean help
+.PHONY: all deps init lint start stop restart status test load-test db-reset clean help frontend frontend-stop

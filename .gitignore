@@ -5,6 +5,9 @@
 # Vendored lunet binaries (fetched by scripts/deps.sh / make deps)
 bin/
 
+# Prebuilt frontend assets (fetched by scripts/frontend.sh / make frontend)
+edge/public/
+
 # Runtime files (pid, logs, nginx temp dirs)
 target/*
 !target/.keep
