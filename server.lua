@@ -1,7 +1,7 @@
 -- Conduit API - RealWorld Example Application
 -- Built with lunet (libuv + LuaJIT coroutine runtime)
 
-package.path = "./app/?.lua;./lib/?.lua;./compat/?.lua;./bin/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./lib/?.lua;./bin/?.lua;./?.lua;" .. package.path
 -- lunet-run already prepends <exe-dir>/?.so and <exe-dir>/lunet/?.so to
 -- package.cpath; keep the explicit entries so the layout also works when the
 -- app is launched any other way.
@@ -12,7 +12,7 @@ io.stdout:setvbuf("no")
 local lunet = require("lunet")
 local socket = require("lunet.socket")
 local http = require("http")
-local ngx_context = require("ngx_context")
+local http_context = require("http_context")
 
 local config = require("config")
 local router = require("router")
@@ -36,7 +36,7 @@ local function read_file(path)
     return content
 end
 
--- Mirrors nginx.conf's three locations: `/health`, `/`, and `^~ /api/`
+-- Three locations: `/health`, `/`, and `/api/*`
 local function handle_request(request)
     metrics.count_request(request.method)
 
@@ -56,11 +56,11 @@ local function handle_request(request)
         return http.error_response(404, { "Not found" })
     end
 
-    local ctx = ngx_context.new_context(request)
-    ctx.ctx.env_config = env_config
+    local ctx = http_context.new(request)
+    ctx.env_config = env_config
     router.handle(ctx)
 
-    return http.response(ctx.status, ctx.header, ctx._get_response_body())
+    return http.response(ctx.status, ctx.res_headers, ctx.response_body())
 end
 
 local function handle_client(client)

@@ -13,7 +13,7 @@ local store = lnt.store("metrics", STORE_BYTES)
 local metrics = {}
 
 -- Atomically bump the counters for one incoming request. incr on a missing
--- key needs an explicit init value (same semantics as ngx.shared.DICT:incr).
+-- key needs an explicit init value or the increment fails.
 function metrics.count_request(method)
     store:incr("requests_total", 1, 0)
     store:incr("requests_method_" .. method, 1, 0)

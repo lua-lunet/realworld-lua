@@ -27,8 +27,8 @@ end
 -- Resolve the authenticated user from the Authorization header
 -- Accepts "Token <jwt>" or "Bearer <jwt>"
 -- @return user, token, errors (errors is a RealWorld errors table when user is nil)
-function web.get_current_user(env_config, ngx)
-    local auth_header = ngx.req.get_headers()["authorization"]
+function web.get_current_user(env_config, ctx)
+    local auth_header = ctx.headers["authorization"]
     if not auth_header then
         return nil, nil, { token = { "is missing" } }
     end

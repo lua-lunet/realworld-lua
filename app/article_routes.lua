@@ -83,16 +83,16 @@ local function generate_slug(title)
 end
 
 -- List articles
-router.route("GET", "/api/articles", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("GET", "/api/articles", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     local current_user_id = user and user.id or nil
     
     -- Parse query parameters
-    local limit = tonumber(ngx.var.arg_limit) or 20
-    local offset = tonumber(ngx.var.arg_offset) or 0
-    local author = ngx.var.arg_author
-    local tag = ngx.var.arg_tag
-    local favorited = ngx.var.arg_favorited
+    local limit = tonumber(ctx.query.limit) or 20
+    local offset = tonumber(ctx.query.offset) or 0
+    local author = ctx.query.author
+    local tag = ctx.query.tag
+    local favorited = ctx.query.favorited
     
     -- Get author_id if author param is provided
     local author_id = nil
@@ -128,14 +128,14 @@ router.route("GET", "/api/articles", function(env_config, ngx, params)
 end)
 
 -- Feed (articles from followed users)
-router.route("GET", "/api/articles/feed", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("GET", "/api/articles/feed", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
     
-    local limit = tonumber(ngx.var.arg_limit) or 20
-    local offset = tonumber(ngx.var.arg_offset) or 0
+    local limit = tonumber(ctx.query.limit) or 20
+    local offset = tonumber(ctx.query.offset) or 0
     
     local articles, err, total_count = db.get_feed(env_config, user.id, limit, offset)
     if err then
@@ -149,8 +149,8 @@ router.route("GET", "/api/articles/feed", function(env_config, ngx, params)
 end)
 
 -- Get article by slug
-router.route("GET", "/api/articles/:slug", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("GET", "/api/articles/:slug", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     local current_user_id = user and user.id or nil
     
     local article = web.fetched(db.get_article_by_slug(env_config, params.slug))
@@ -162,14 +162,13 @@ router.route("GET", "/api/articles/:slug", function(env_config, ngx, params)
 end)
 
 -- Create article
-router.route("POST", "/api/articles", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("POST", "/api/articles", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
     
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data()
+    local body = ctx.body
     if not body then
         return error_response(422, { article = { "Missing request body" } })
     end
@@ -228,8 +227,8 @@ router.route("POST", "/api/articles", function(env_config, ngx, params)
 end)
 
 -- Update article
-router.route("PUT", "/api/articles/:slug", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("PUT", "/api/articles/:slug", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -244,8 +243,7 @@ router.route("PUT", "/api/articles/:slug", function(env_config, ngx, params)
         return error_response(403, { article = { "forbidden" } })
     end
     
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data()
+    local body = ctx.body
     if not body then
         return error_response(422, { article = { "Missing request body" } })
     end
@@ -289,8 +287,8 @@ router.route("PUT", "/api/articles/:slug", function(env_config, ngx, params)
 end)
 
 -- Delete article
-router.route("DELETE", "/api/articles/:slug", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("DELETE", "/api/articles/:slug", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -314,14 +312,14 @@ router.route("DELETE", "/api/articles/:slug", function(env_config, ngx, params)
 end)
 
 -- Get article comments
-router.route("GET", "/api/articles/:slug/comments", function(env_config, ngx, params)
+router.route("GET", "/api/articles/:slug/comments", function(env_config, ctx, params)
     -- Check if article exists first
     local article = web.fetched(db.get_article_by_slug(env_config, params.slug))
     if not article then
         return error_response(404, { article = { "not found" } })
     end
     
-    local user, token, err = get_current_user(env_config, ngx)
+    local user, token, err = get_current_user(env_config, ctx)
     local current_user_id = user and user.id or nil
     
     local comments, err = db.get_comments_by_article(env_config, params.slug)
@@ -349,8 +347,8 @@ router.route("GET", "/api/articles/:slug/comments", function(env_config, ngx, pa
 end)
 
 -- Create comment
-router.route("POST", "/api/articles/:slug/comments", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("POST", "/api/articles/:slug/comments", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -361,8 +359,7 @@ router.route("POST", "/api/articles/:slug/comments", function(env_config, ngx, p
         return error_response(404, { article = { "not found" } })
     end
     
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data()
+    local body = ctx.body
     if not body then
         return error_response(422, { comment = { "Missing request body" } })
     end
@@ -405,8 +402,8 @@ router.route("POST", "/api/articles/:slug/comments", function(env_config, ngx, p
 end)
 
 -- Delete comment
-router.route("DELETE", "/api/articles/:slug/comments/:id", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("DELETE", "/api/articles/:slug/comments/:id", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -436,8 +433,8 @@ router.route("DELETE", "/api/articles/:slug/comments/:id", function(env_config, 
 end)
 
 -- Favorite article
-router.route("POST", "/api/articles/:slug/favorite", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("POST", "/api/articles/:slug/favorite", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -459,8 +456,8 @@ router.route("POST", "/api/articles/:slug/favorite", function(env_config, ngx, p
 end)
 
 -- Unfavorite article
-router.route("DELETE", "/api/articles/:slug/favorite", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("DELETE", "/api/articles/:slug/favorite", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -482,7 +479,7 @@ router.route("DELETE", "/api/articles/:slug/favorite", function(env_config, ngx,
 end)
 
 -- Get tags
-router.route("GET", "/api/tags", function(env_config, ngx, params)
+router.route("GET", "/api/tags", function(env_config, ctx, params)
     local tags, err = db.get_all_tags(env_config)
     if err then
         return error_response(500, { database = { err } })

@@ -1,5 +1,4 @@
--- Router module for OpenResty/LuaJIT
--- Provides routing with :param extraction and JSON responses
+-- Router module: method+path dispatch with :param extraction and JSON responses
 
 -- lunet.jsonic: fast Rust-backed decode, dkjson encode. dkjson encodes empty
 -- tables as [] by default, which is what the RealWorld spec wants for empty
@@ -14,7 +13,7 @@ local routes = {}
 -- Add a route to the router
 -- @param method: HTTP method (GET, POST, etc.)
 -- @param path: URL path pattern (e.g., "/users/:id")
--- @param handler: function(env_config, ngx, params) returning { status, body }
+-- @param handler: function(env_config, ctx, params) returning { status, body }
 function router.route(method, path, handler)
     table.insert(routes, {
         method = method:upper(),
@@ -72,21 +71,21 @@ function router.match(method, path)
 end
 
 -- Handle a request: dispatch to the matching route and write the JSON response
-function router.handle(ngx)
-    local method = ngx.req.get_method()
-    local path = ngx.var.uri
+function router.handle(ctx)
+    local method = ctx.method
+    local path = ctx.path
 
     local route, params = router.match(method, path)
     if not route then
-        ngx.status = 404
-        ngx.header["Content-Type"] = "application/json"
-        ngx.say(json.encode({ error = "Not found", path = path }))
+        ctx.status = 404
+        ctx.res_headers["Content-Type"] = "application/json"
+        ctx.write(json.encode({ error = "Not found", path = path }))
         return
     end
 
     local status = 200
     local result
-    local ok, handler_result = pcall(route.handler, ngx.ctx.env_config, ngx, params)
+    local ok, handler_result = pcall(route.handler, ctx.env_config, ctx, params)
     if ok then
         result = handler_result
         if type(result) == "table" and result.status then
@@ -94,32 +93,32 @@ function router.handle(ngx)
             result = result.body or result
         end
     else
-        ngx.log(ngx.ERR, "Handler error for ", method, " ", path, ": ", tostring(handler_result))
+        ctx.log("err", "Handler error for ", method, " ", path, ": ", tostring(handler_result))
         status = 500
         result = { error = "Internal server error" }
     end
 
-    ngx.status = status
-    ngx.header["Content-Type"] = "application/json"
+    ctx.status = status
+    ctx.res_headers["Content-Type"] = "application/json"
 
     if status == 204 then
-        ngx.say("")
+        ctx.write("")
         return
     end
 
     if type(result) == "string" then
-        ngx.say(result)
+        ctx.write(result)
         return
     end
 
     local encode_ok, encoded = pcall(json.encode, result)
     if not encode_ok then
-        ngx.log(ngx.ERR, "JSON encode error for ", method, " ", path, ": ", tostring(encoded))
-        ngx.status = 500
-        ngx.say('{"error":"Internal server error"}')
+        ctx.log("err", "JSON encode error for ", method, " ", path, ": ", tostring(encoded))
+        ctx.status = 500
+        ctx.write('{"error":"Internal server error"}')
         return
     end
-    ngx.say(encoded)
+    ctx.write(encoded)
 end
 
 return router

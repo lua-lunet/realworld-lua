@@ -30,10 +30,8 @@ local function taken_response(err)
 end
 
 -- Validate login request
-local function validate_login_request(ngx)
-    -- Read request body
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data()
+local function validate_login_request(ctx)
+    local body = ctx.body
     
     if not body then
         return nil, nil, "Missing request body"
@@ -52,8 +50,8 @@ local function validate_login_request(ngx)
 end
 
 -- Register a new user
-router.route("POST", "/api/users", function(env_config, ngx, params)
-    local user_data, _, err = validate_login_request(ngx)
+router.route("POST", "/api/users", function(env_config, ctx, params)
+    local user_data, _, err = validate_login_request(ctx)
     if not user_data then
         return error_response(422, { body = { err or "Invalid request" } })
     end
@@ -110,7 +108,7 @@ router.route("POST", "/api/users", function(env_config, ngx, params)
     end
     
     -- Return user with token
-    -- Use ngx.null for null values (nil would be omitted by JSON encoder)
+    -- Use json.null for null values (nil would be omitted by JSON encoder)
     return json_response(201, {
         user = {
             id = created.id,
@@ -124,8 +122,8 @@ router.route("POST", "/api/users", function(env_config, ngx, params)
 end)
 
 -- Login user and return JWT token
-router.route("POST", "/api/users/login", function(env_config, ngx, params)
-    local user, _, err = validate_login_request(ngx)
+router.route("POST", "/api/users/login", function(env_config, ctx, params)
+    local user, _, err = validate_login_request(ctx)
     if not user then
         return error_response(422, { body = { err or "Invalid request" } })
     end
@@ -181,7 +179,7 @@ router.route("POST", "/api/users/login", function(env_config, ngx, params)
     end
     
     -- Return user with token
-    -- Use ngx.null for null values (nil would be omitted by JSON encoder)
+    -- Use json.null for null values (nil would be omitted by JSON encoder)
     return json_response(200, {
         user = {
             id = profile.id,
@@ -195,8 +193,8 @@ router.route("POST", "/api/users/login", function(env_config, ngx, params)
 end)
 
 -- Get current user (requires authentication)
-router.route("GET", "/api/user", function(env_config, ngx, params)
-    local user, token, auth_err = web.get_current_user(env_config, ngx)
+router.route("GET", "/api/user", function(env_config, ctx, params)
+    local user, token, auth_err = web.get_current_user(env_config, ctx)
     if not user then
         return error_response(401, auth_err)
     end
@@ -210,16 +208,15 @@ router.route("GET", "/api/user", function(env_config, ngx, params)
 end)
 
 -- Update user (requires authentication)
-router.route("PUT", "/api/user", function(env_config, ngx, params)
-    local current_user, token, auth_err = web.get_current_user(env_config, ngx)
+router.route("PUT", "/api/user", function(env_config, ctx, params)
+    local current_user, token, auth_err = web.get_current_user(env_config, ctx)
     if not current_user then
         return error_response(401, auth_err)
     end
     local user_id = current_user.id
 
     -- Read request body
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data()
+    local body = ctx.body
     
     if not body then
         return error_response(422, { body = { "Missing request body" } })

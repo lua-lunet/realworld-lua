@@ -29,8 +29,8 @@ local function format_profile(env_config, profile, current_user_id)
 end
 
 -- Get profile
-router.route("GET", "/api/profiles/:username", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("GET", "/api/profiles/:username", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     local current_user_id = user and user.id or nil
     
     local profile = web.fetched(db.get_profile_by_username(env_config, params.username))
@@ -42,8 +42,8 @@ router.route("GET", "/api/profiles/:username", function(env_config, ngx, params)
 end)
 
 -- Follow user
-router.route("POST", "/api/profiles/:username/follow", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("POST", "/api/profiles/:username/follow", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end
@@ -73,8 +73,8 @@ router.route("POST", "/api/profiles/:username/follow", function(env_config, ngx,
 end)
 
 -- Unfollow user
-router.route("DELETE", "/api/profiles/:username/follow", function(env_config, ngx, params)
-    local user, token, err = get_current_user(env_config, ngx)
+router.route("DELETE", "/api/profiles/:username/follow", function(env_config, ctx, params)
+    local user, token, err = get_current_user(env_config, ctx)
     if not user then
         return error_response(401, err)
     end

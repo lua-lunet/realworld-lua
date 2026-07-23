@@ -1,7 +1,5 @@
 {
   "workspace.library": [],
-  "diagnostics.globals": [
-    "ngx"
-  ],
+  "diagnostics.globals": [],
   "runtime.version": "LuaJIT"
 }

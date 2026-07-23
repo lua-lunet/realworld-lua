@@ -30,8 +30,8 @@ local function masked_json(config)
 end
 
 -- Resolve all required environment variables into a config table
--- Uses dotenv to load from .env file (os.getenv does not see them in
--- OpenResty worker processes); falls back to os.getenv outside nginx
+-- Values come from the .env file when present, falling back to the process
+-- environment (os.getenv)
 -- @return config: table with all resolved values, or nil
 -- @return errors: table of missing variable names, or nil
 local function resolve_config()
@@ -60,9 +60,7 @@ local function resolve_config()
     config.PGSSLMODE = env_from_file.PGSSLMODE or os.getenv("PGSSLMODE")
 
     cached_config = config
-    if ngx then
-        ngx.log(ngx.NOTICE, "Resolved config: ", masked_json(config))
-    end
+    io.stderr:write("[notice] Resolved config: ", masked_json(config), "\n")
     return config, nil
 end
 
