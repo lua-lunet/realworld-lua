@@ -37,6 +37,8 @@ start:
 		nohup ./bin/lunet-run server.lua > target/server.log 2>&1 & \
 		echo $$! > $(PID_FILE); \
 		sleep 1; \
+		kill -0 $$(cat $(PID_FILE)) 2>/dev/null \
+			|| { echo "ERROR: server died at startup (port already in use?). See target/server.log"; rm -f $(PID_FILE); exit 1; }; \
 		curl -fsS http://localhost:8081/health >/dev/null \
 			&& echo "Server started on port 8081 (PID $$(cat $(PID_FILE)))." \
 			|| { echo "ERROR: server failed to start. See target/server.log"; exit 1; }; \
@@ -62,9 +64,11 @@ frontend:
 		echo "Edge already running (PID $$(cat $(EDGE_PID_FILE)))."; \
 	else \
 		mkdir -p target; \
-		nohup ./bin/lunet-run edge.lua > target/edge.log 2>&1 & \
+		nohup ./bin/lunet-run edge/server.lua > target/edge.log 2>&1 & \
 		echo $$! > $(EDGE_PID_FILE); \
 		sleep 1; \
+		kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null \
+			|| { echo "ERROR: edge died at startup (port already in use?). See target/edge.log"; rm -f $(EDGE_PID_FILE); exit 1; }; \
 		curl -fsS http://localhost:8083/ >/dev/null \
 			&& echo "Edge serving the frontend on http://localhost:8083 (PID $$(cat $(EDGE_PID_FILE)))." \
 			|| { echo "ERROR: edge failed to start. See target/edge.log"; exit 1; }; \

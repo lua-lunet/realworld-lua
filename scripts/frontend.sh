@@ -4,7 +4,7 @@
 # Source: https://github.com/daodao-bot/realworld-html-js-simple (Unlicense) —
 # plain HTML pages + fetch()-based JS, no framework and no build step, written
 # to be served by nginx doing statics + API proxying (see its
-# nginx/default.conf, which edge.lua mirrors). Perfect demo fodder:
+# nginx/default.conf, which edge/server.lua mirrors). Perfect demo fodder:
 # clearly not production UI, exactly production-shaped traffic.
 #
 # One patch is applied at fetch time: the API base URL default in js/api.js is
@@ -26,8 +26,12 @@ fi
 
 echo "==> Fetching $FRONTEND_REPO@$FRONTEND_REF"
 mkdir -p "$DEST"
-curl -fsSL "https://codeload.github.com/$FRONTEND_REPO/tar.gz/$FRONTEND_REF" \
-  | tar -xzf - -C "$DEST" --strip-components=2 "realworld-html-js-simple-$FRONTEND_REF/public"
+TARBALL="$(mktemp -t realworld-frontend.XXXXXX)"
+trap 'rm -f "$TARBALL"' EXIT
+curl -fsSL "https://codeload.github.com/$FRONTEND_REPO/tar.gz/$FRONTEND_REF" -o "$TARBALL"
+tar -xzf "$TARBALL" -C "$DEST" --strip-components=2 "realworld-html-js-simple-$FRONTEND_REF/public"
+# Carry the upstream license with the vendored content (see README, "Attribution")
+tar -xzf "$TARBALL" -C "$DEST" --strip-components=1 "realworld-html-js-simple-$FRONTEND_REF/LICENSE"
 
 echo "==> Pointing the frontend at the same-origin /api (proxied by the edge)"
 API_JS="$DEST/js/api.js"
