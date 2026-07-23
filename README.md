@@ -4,7 +4,7 @@
 
 ### [Demo](https://demo.realworld.build/)&nbsp;&nbsp;&nbsp;&nbsp;[RealWorld](https://github.com/realworld-apps/realworld)
 
-This codebase demonstrates a fully fledged backend API built with **[lunet](https://github.com/lua-lunet/lunet)** (a libuv + LuaJIT coroutine networking runtime) and **PostgreSQL**, including CRUD operations, JWT authentication, routing, and no framework beyond a small router. It passes the RealWorld API compatibility suite (`specs/run-api-tests-hurl.sh`).
+Backend API built with **[lunet](https://github.com/lua-lunet/lunet)** (libuv + LuaJIT coroutine runtime) and **PostgreSQL**: CRUD, JWT auth, routing via a small hand-rolled router. Passes the RealWorld API compatibility suite (`specs/run-api-tests-hurl.sh`).
 
 ## How it works
 
@@ -16,19 +16,19 @@ sequenceDiagram
     participant PostgreSQL
 
     Client->>Server: HTTP request (TCP)
-    Server->>Lua: router.handle(ctx) — one lunet coroutine per connection
+    Server->>Lua: router.handle(ctx) — one lunet coroutine per connection; request JSON decoded by lunet.jsonic (Rust)
     Lua->>PostgreSQL: lunet.postgres (libuv thread pool, coroutine-safe)
     PostgreSQL-->>Lua: rows
-    Lua-->>Server: JSON (lunet.jsonic)
+    Lua-->>Server: response JSON encoded by dkjson (vendored with lunet.jsonic)
     Server-->>Client: HTTP response
 ```
 
-- **lunet**: standalone libuv + LuaJIT runtime — no nginx, no OpenResty; `server.lua` runs its own accept loop with `lunet.socket`, spawning one coroutine per connection
-- **lunet.postgres**: native PostgreSQL driver built on libpq; queries run on libuv's thread pool so a slow query never blocks the event loop
-- **lib/crypto.lua**: libsodium via LuaJIT FFI — Argon2id password hashing, HMAC-SHA256 for JWT signing, base64url, CSPRNG
-- **lunet.jsonic**: fast Rust-backed JSON decoding with a bundled dkjson encoder (API-compatible for this app's `encode`/`decode`/`null` usage)
-- **lunet.lnt_shared**: sharded in-process dictionary with atomic counters — backs the request metrics exposed on `/health` ([app/metrics.lua](app/metrics.lua))
-- **Custom router** ([app/router.lua](app/router.lua)): a small routing table with `:param` extraction, driven by a per-request context object ([compat/ngx_context.lua](compat/ngx_context.lua)) rather than a global — safe under concurrent coroutines
+- **lunet**: standalone libuv + LuaJIT runtime; `server.lua` runs its own accept loop with `lunet.socket`, one coroutine per connection
+- **lunet.postgres**: PostgreSQL driver on libpq; queries run on libuv's thread pool so a slow query never blocks the event loop
+- **lib/crypto.lua**: libsodium via LuaJIT FFI — Argon2id password hashing, HMAC-SHA256 JWT signing, base64url, CSPRNG
+- **lunet.jsonic**: request JSON decoded by the Rust jsonic parser; response JSON encoded by the bundled dkjson (see [Attribution](#attribution))
+- **lunet.lnt_shared**: sharded in-process dictionary with atomic counters — backs the request metrics on `/health` ([app/metrics.lua](app/metrics.lua))
+- **Custom router** ([app/router.lua](app/router.lua)): routing table with `:param` extraction, driven by a per-request context ([lib/http_context.lua](lib/http_context.lua)) — safe under concurrent coroutines
 - **Custom HTTP parsing** ([lib/http.lua](lib/http.lua)): request/response (de)serialization over raw sockets
 
 ## Project structure
@@ -45,18 +45,18 @@ sequenceDiagram
 │   ├── profile_routes.lua  # /api/profiles
 │   ├── web.lua             # Shared helpers (auth token resolution, responses)
 │   ├── db.lua              # SQL queries via lunet.postgres
-│   ├── jwt.lua              # HS256 JWT encode/decode, built on lib/crypto
+│   ├── jwt.lua             # HS256 JWT encode/decode, built on lib/crypto
 │   ├── password.lua        # Argon2id hashing, built on lib/crypto
 │   ├── metrics.lua         # Request counters via lunet.lnt_shared, exposed on /health
 │   ├── config.lua          # Environment variable resolution
 │   └── dotenv.lua          # .env file loader
 ├── lib/
 │   ├── crypto.lua          # libsodium FFI: hashing, HMAC, base64, CSPRNG
-│   └── http.lua            # HTTP request parsing / response building
-├── compat/
-│   └── ngx_context.lua     # Per-connection request context passed into router.handle()
-├── edge.lua                 # Optional second lunet instance: serves the frontend + proxies /api
-├── edge/public/             # Prebuilt frontend assets (gitignored; fetched by make frontend)
+│   ├── http.lua            # HTTP request parsing / response building
+│   └── http_context.lua    # Per-request context passed into router.handle()
+├── edge/                    # Optional add-on, not part of the backend demo:
+│   ├── server.lua           #   second lunet instance serving a frontend + relaying /api
+│   └── public/              #   prebuilt frontend assets (gitignored; fetched by make frontend)
 ├── scripts/
 │   ├── deps.sh              # Fetches the lunet binary release into bin/
 │   └── frontend.sh          # Fetches the prebuilt frontend into edge/public/
@@ -66,16 +66,16 @@ sequenceDiagram
 └── target/                 # Runtime files: pid, logs, local Postgres data dir (gitignored)
 ```
 
-All runtime state (pid file, logs) lives under `target/`, so the working tree stays clean. `make clean` empties it (and refuses to run while the server is up).
+Runtime state (pid, logs) lives under `target/`; `make clean` empties it (and refuses while the server is up).
 
 ## Getting started
 
-Requires PostgreSQL and [mise](https://mise.jdx.dev/) (which provides hurl and lua-language-server). No compiler or toolchain is needed — lunet is consumed as a prebuilt binary release.
+Requires PostgreSQL and [mise](https://mise.jdx.dev/) (provides hurl, lua-language-server).
 
 ```bash
-cp .env.example .env   # or create .env with PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, JWT_SECRET
+cp .env.example .env   # PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, JWT_SECRET
 
-make deps      # fetch lunet binaries into bin/ (seconds; no xmake)
+make deps      # fetch lunet binaries into bin/ (seconds)
 make init      # check dependencies, load sql/schema.sql
 make start     # start the server on port 8081
 make test      # run the RealWorld API compatibility suite (Hurl)
@@ -87,92 +87,86 @@ make clean     # remove runtime files in target/
 
 ## Binary dependencies (`bin/`)
 
-Nothing here is compiled — there is no xmake or cargo step anywhere. `make deps`
-([scripts/deps.sh](scripts/deps.sh)) downloads the tagged release archive (`v0.4.4`)
-from [lunet releases](https://github.com/lua-lunet/lunet/releases) and extracts it
-into `bin/` in seconds. The archive carries everything the app needs:
+`make deps` extracts the tagged release archive (`v0.4.4`) from
+[lunet releases](https://github.com/lua-lunet/lunet/releases) into `bin/`:
 
-- `lunet-run` + `lunet.so` — `lunet-run` resolves its core library and drivers
-  relative to its own location, so the archive layout is kept as-is
-- the drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`
-- the `lnt_shared` and `jsonic` ext modules (shipped in the archive since v0.4.4,
-  see [lunet#115](https://github.com/lua-lunet/lunet/issues/115)): each module's Lua
-  loader resolves its compiled library relative to the loader's own directory —
-  `lunet/lnt_shared.lua` + `lunet/liblnt_shared.{dylib,so}` and
-  `lunet/jsonic.lua` + `lunet/dkjson-encode-v2.10.lua` + `lunet/liblunet_jsonic.{dylib,so}`
+- `lunet-run` + `lunet.so`
+- drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`
+- `lunet/lnt_shared.lua` + `lunet/liblnt_shared.{dylib,so}`
+- `lunet/jsonic.lua` + `lunet/dkjson-encode-v2.10.lua` + `lunet/liblunet_jsonic.{dylib,so}`
 
-`server.lua` adds `./bin/?.lua` to `package.path` so `require("lunet.lnt_shared")` and
-`require("lunet.jsonic")` find those loaders.
+Each loader resolves its compiled library relative to itself, and `lunet-run` resolves
+drivers relative to its own location — the archive layout is kept as-is. `server.lua`
+adds `./bin/?.lua` to `package.path` for the pure-Lua loaders.
 
-Runtime shared-library dependencies of the release binaries (already present if you
-previously built lunet from source):
+Runtime shared libraries:
 
-- **macOS** (the release links against Homebrew kegs): `brew install luajit libuv libpq libsodium`
+- **macOS**: `brew install luajit libuv libpq libsodium`
 - **Debian/Ubuntu**: `apt install libluajit-5.1-2 libuv1 libpq5 libsodium23 libsqlite3-0`
-  (runtime packages only — no `-dev` packages, no toolchain). Note: `libsodium23` ships only
-  the versioned `libsodium.so.23`; FFI users need an unversioned `libsodium.so` symlink, which
-  the [Dockerfile](Dockerfile) runtime stage creates.
+  plus an unversioned `libsodium.so` symlink for FFI (created in the [Dockerfile](Dockerfile)).
 
 ## Docker
 
-The image is pure lunet — no nginx, no OpenResty, and **no toolchain at all** (no xmake,
-no cargo). The builder stage runs the same `scripts/deps.sh` as local dev (just
-`curl | tar`); the runtime stage carries only the shared libraries the binaries link
-against. Since lunet publishes a `linux-amd64` archive only, the image is pinned to that
-platform.
-
 ```bash
 docker build -t realworld-lua .
-
-docker run --rm -p 8081:8081 \
-  -e PGHOST=... -e PGPORT=5432 -e PGDATABASE=realworld -e PGUSER=... -e PGPASSWORD=... \
-  -e JWT_SECRET=... \
-  realworld-lua
+docker run --rm -p 8081:8081 --env-file .env realworld-lua
 ```
 
-lunet refuses to bind a listening socket to a non-loopback address unless told the container
-boundary is the intended security perimeter, so the image's `CMD` passes
-`--dangerously-skip-loopback-restriction` to `lunet-run` — required for the standard
-`-p containerPort:hostPort` pattern, since the server has to listen on `0.0.0.0` inside the
-container for the port mapping to reach it.
+The image targets `linux/amd64` (the only Linux archive lunet publishes).
 
-## Frontend (optional edge server)
+## Optional extra: a frontend edge (not part of the demo)
 
-The backend deliberately does no static file IO — in a real deployment that role belongs to
-nginx in front of lunet. For local demos there is instead a **second, standalone lunet
-instance** ([edge.lua](edge.lua)) playing the edge role, started with the same
-vendored binary:
+`edge/` serves a prebuilt frontend from a second lunet instance
+([edge/server.lua](edge/server.lua)) and relays `/api/*` to the backend on `:8081`:
 
 ```bash
-make frontend       # fetch the prebuilt frontend (first run) and serve it on :8083
+make frontend       # fetch the frontend (first run), serve on :8083
 make frontend-stop
 ```
 
-Then open <http://localhost:8083/>. The page talks to the API same-origin: the edge proxies
-`/api/*` to the backend on `:8081` as a raw TCP relay, so no CORS and no frontend rebuild.
+Open <http://localhost:8083/>. The page calls the API same-origin via the relay.
 
-- The frontend is [daodao-bot/realworld-html-js-simple](https://github.com/daodao-bot/realworld-html-js-simple)
-  (Unlicense): plain HTML pages + `fetch()` JS, **no framework and no build step** — the
-  dumbest prebuilt that still exercises the whole API. [scripts/frontend.sh](scripts/frontend.sh)
-  pins it by commit and applies two fetch-time patches: API base → same-origin `/api`, and
-  the dead theme-CDN link → a vendored copy of the classic Conduit CSS.
-- `edge.lua` mirrors the frontend's reference `nginx/default.conf`: statics with
-  extensionless/SPA fallbacks (`/article/*` → `article.html` etc.), one-pass SSI for the
-  pages' `<!--#include -->` partials, and the `/api` relay. Demo-grade (single-shot request
-  reads, one connection per request) — it exists to dogfood the binary release as a
-  statics+proxy edge, not to be a web server.
-- The whole hurl suite also passes **through the edge**:
-  `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
+- [scripts/frontend.sh](scripts/frontend.sh) fetches the pinned frontend (see
+  [Attribution](#attribution)) and patches: API base → `/api`; dead theme-CDN link →
+  vendored classic Conduit CSS.
+- `edge/server.lua` mirrors the frontend's `nginx/default.conf`: extensionless/SPA
+  fallbacks, one-pass SSI includes, `/api` relay. Demo-grade: single-shot reads, one
+  connection per request.
+- Hurl suite through the edge: `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
+
+## Attribution
+
+The backend is licensed [MIT](LICENSE). Third-party material:
+
+In `bin/` (all part of the lunet release archive):
+
+- **dkjson** (`bin/lunet/dkjson-encode-v2.10.lua`) — JSON encode/decode for Lua by
+  David Kolf, [MIT](http://dkolf.de/dkjson-lua). The encode half of `lunet.jsonic`.
+- **jsonic** (`bin/lunet/jsonic.lua` + `bin/lunet/liblunet_jsonic.*`) — fast JSON parser
+  ([jsonic](https://github.com/g1mv/jsonic), MIT/Apache-2.0) behind lunet's FFI binding;
+  the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.4.4/ext/jsonic).
+
+In `edge/public/` (optional, not committed):
+
+- **[daodao-bot/realworld-html-js-simple](https://github.com/daodao-bot/realworld-html-js-simple)** —
+  vanilla HTML/JS RealWorld frontend, pinned commit `cac2d502`, [Unlicense](https://unlicense.org);
+  its `LICENSE` is fetched alongside. Two fetch-time patches applied as above.
+- **Conduit demo theme** (`main.css`) — code & design from the
+  [RealWorld](https://github.com/realworld-apps/realworld) demo (MIT); bundles Bootstrap v4
+  (MIT, © Twitter, Inc.). Original CDN defunct; vendored from a
+  [Wayback Machine snapshot](https://web.archive.org/web/20250708043359/https://demo.productionready.io/main.css).
+- **Icons/fonts** load from CDNs in the browser: [Ionicons](https://ionicons.com) (MIT),
+  Google Fonts (SIL OFL 1.1).
+
+RealWorld name and API spec: [RealWorld](https://github.com/realworld-apps/realworld) (MIT).
 
 ## Load testing
 
-`make load-test` runs [specs/run-load-tests.sh](specs/run-load-tests.sh) (POSIX sh, requires
-[hey](https://github.com/rakyll/hey)): readers hammer the article list and detail endpoints at
-full speed with concurrency doubling 1 → 64, while writers post comments and favorites at a
-limited rate, keeping the mix ~99% reads. The test fails on any HTTP 500. Note: `server.lua`
-does not yet implement connection/load shedding (nginx's `limit_conn` did this in the previous
-OpenResty deployment) — under sustained overload it will queue rather than return 503.
+`make load-test` runs [specs/run-load-tests.sh](specs/run-load-tests.sh) (requires
+[hey](https://github.com/rakyll/hey)): read-heavy mix (~99% reads) at concurrency
+doubling 1 → 64; fails on any HTTP 500. `server.lua` has no load shedding — under
+sustained overload it queues rather than returning 503.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — third-party components under their own licenses, see [Attribution](#attribution).
