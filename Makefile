@@ -74,6 +74,9 @@ frontend:
 			|| { echo "ERROR: edge failed to start. See target/edge.log"; exit 1; }; \
 	fi
 
+bundle:
+	@./scripts/bundle.sh
+
 frontend-stop:
 	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
 		kill $$(cat $(EDGE_PID_FILE)); \
@@ -136,6 +139,7 @@ help:
 	@echo "  make test     - Run RealWorld API compatibility tests with Hurl"
 	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083"
 	@echo "  make frontend-stop - Stop the edge server"
+	@echo "  make bundle   - Repack release + app into a self-extracting dist/*.run"
 	@echo "  make load-test - Run read-dominated load test with hey (concurrency 1 -> 64)"
 	@echo "  make db-reset - Drop and recreate the database schema"
 	@echo "  make clean    - Remove runtime files in target/ (server must be stopped)"
@@ -143,4 +147,4 @@ help:
 	@echo "  make help     - Show this help message"
 	@echo ""
 
-.PHONY: all deps init lint start stop restart status test load-test db-reset clean help frontend frontend-stop
+.PHONY: all deps init lint start stop restart status test load-test db-reset clean help frontend frontend-stop bundle

@@ -8,6 +8,9 @@ bin/
 # Prebuilt frontend assets (fetched by scripts/frontend.sh / make frontend)
 edge/public/
 
+# Self-extracting app bundles (scripts/bundle.sh / make bundle)
+dist/
+
 # Runtime files (pid, logs, nginx temp dirs)
 target/*
 !target/.keep

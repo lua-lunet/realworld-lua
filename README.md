@@ -59,8 +59,10 @@ sequenceDiagram
 │   └── public/              #   prebuilt frontend assets (gitignored; fetched by make frontend)
 ├── scripts/
 │   ├── deps.sh              # Fetches the lunet binary release into bin/
-│   └── frontend.sh          # Fetches the prebuilt frontend into edge/public/
+│   ├── frontend.sh          # Fetches the prebuilt frontend into edge/public/
+│   └── bundle.sh            # Repacks release + app into a self-extracting .run
 ├── bin/                     # lunet binaries (gitignored; created by make deps)
+├── dist/                    # Self-extracting app bundles (gitignored; make bundle)
 ├── sql/schema.sql          # PostgreSQL schema
 ├── specs/                  # RealWorld Hurl compatibility suite + OpenAPI spec
 └── target/                 # Runtime files: pid, logs, local Postgres data dir (gitignored)
@@ -83,6 +85,7 @@ make load-test # read-dominated load test with hey, concurrency doubling 1 -> 64
 make lint      # lua-language-server static analysis
 make stop      # stop the server
 make clean     # remove runtime files in target/
+make bundle    # repack release + app into a self-extracting dist/*.run
 ```
 
 ## Binary dependencies (`bin/`)
