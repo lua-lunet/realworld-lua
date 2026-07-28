@@ -64,15 +64,17 @@ local function handle_request(request)
 end
 
 local function handle_client(client)
-    local data = socket.read(client)
-    if not data then
+    -- lib/http.lua reads the supported HTTP/1.1 subset incrementally, then
+    -- this server sends one Connection: close response and closes the socket.
+    local request, parse_err, parse_status = http.read_request(function()
+        return socket.read(client)
+    end)
+    if not request and not parse_err then
         socket.close(client)
         return
     end
-
-    local request, parse_err = http.parse_request(data)
     if not request then
-        socket.write(client, http.error_response(400, { parse_err or "Bad request" }))
+        socket.write(client, http.error_response(parse_status or 400, { parse_err or "Bad request" }))
         socket.close(client)
         return
     end

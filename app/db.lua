@@ -3,16 +3,25 @@
 -- Every function takes env_config (the resolved config table) as its first argument
 
 local native = require("lunet.postgres")
+local lunet = require("lunet")
 
 -- LuaJIT is Lua 5.1: unpack is global there, table.unpack on 5.2-compat builds
 local unpack = table.unpack or unpack
 
 local db = {}
 
--- Connection pool: array-backed, create-on-demand. Safe under lunet's
--- cooperative coroutines since table.remove/insert never yield.
-local pool = {}
-local POOL_SIZE = 100
+-- Connection pool: array-backed and create-on-demand. These table operations
+-- never yield, so reserving a connection slot is atomic between Lunet coroutines.
+local idle_connections = {}
+
+-- MAX_IDLE_CONNECTIONS is only the number of unused connections we retain for
+-- reuse. It is not a limit on the number of PostgreSQL connections we open.
+local MAX_IDLE_CONNECTIONS = 100
+
+-- MAX_OPEN_CONNECTIONS is the hard cap for idle, checked-out, and connections
+-- currently opening. At the cap, callers yield briefly instead of opening more.
+local MAX_OPEN_CONNECTIONS = 100
+local open_connections = 0
 
 -- Open a new connection using values from the passed-in env_config table
 local function new_connection(env_config)
@@ -30,19 +39,44 @@ local function new_connection(env_config)
     return conn, nil
 end
 
-local function get_conn(env_config)
-    local conn = table.remove(pool)
-    if conn then
-        return conn, nil
-    end
-    return new_connection(env_config)
+local function discard_conn(conn)
+    -- native.close does not yield. Always decrement our reservation even when
+    -- close reports an unexpected error, so the pool cannot permanently block.
+    pcall(native.close, conn)
+    open_connections = open_connections - 1
 end
 
 local function release_conn(conn)
-    if #pool < POOL_SIZE then
-        table.insert(pool, conn)
+    if #idle_connections < MAX_IDLE_CONNECTIONS then
+        table.insert(idle_connections, conn)
     else
-        native.close(conn)
+        discard_conn(conn)
+    end
+end
+
+local function get_conn(env_config)
+    while true do
+        local conn = table.remove(idle_connections)
+        if conn then
+            return conn, nil
+        end
+
+        if open_connections < MAX_OPEN_CONNECTIONS then
+            -- Reserve before native.open yields, so concurrent coroutines
+            -- cannot race past MAX_OPEN_CONNECTIONS.
+            open_connections = open_connections + 1
+            local conn, err = new_connection(env_config)
+            if not conn then
+                open_connections = open_connections - 1
+                return nil, err
+            end
+            return conn, nil
+        end
+
+        -- Lunet has no condition-variable primitive. Sleeping yields this
+        -- request coroutine and provides cooperative backpressure until a
+        -- checked-out connection is released or discarded.
+        lunet.sleep(1)
     end
 end
 
@@ -59,7 +93,7 @@ function db.query(env_config, sql, ...)
 
     local res, qerr = native.query(conn, sql, ...)
     if not res then
-        native.close(conn)
+        discard_conn(conn)
         return nil, qerr
     end
 
@@ -78,6 +112,79 @@ function db.query_row(env_config, sql, ...)
         return nil, err
     end
     return res[1], nil
+end
+
+-- Run a value-or-error callback in a PostgreSQL transaction.
+-- The callback receives tx, whose query/query_row methods keep all work on the
+-- same checked-out connection. A nil/false value or Lua error rolls back.
+function db.transaction(env_config, work)
+    local conn, err = get_conn(env_config)
+    if not conn then
+        return nil, err
+    end
+
+    local began, begin_err = native.query(conn, "BEGIN")
+    if not began then
+        discard_conn(conn)
+        return nil, begin_err
+    end
+
+    local tx = {}
+    function tx:query(sql, ...)
+        return native.query(conn, sql, ...)
+    end
+    function tx:query_row(sql, ...)
+        local rows, query_err = self:query(sql, ...)
+        if not rows then
+            return nil, query_err
+        end
+        return rows[1], nil
+    end
+
+    local function rollback()
+        local rolled_back = native.query(conn, "ROLLBACK")
+        if rolled_back then
+            release_conn(conn)
+        else
+            discard_conn(conn)
+        end
+    end
+
+    -- LuaJIT's pcall is yieldable, so database queries inside work remain
+    -- asynchronous while this guard still releases the connection on errors.
+    local ok, value, work_err = pcall(work, tx)
+    if not ok then
+        rollback()
+        return nil, value
+    end
+    if not value then
+        rollback()
+        return nil, work_err
+    end
+
+    local committed, commit_err = native.query(conn, "COMMIT")
+    if not committed then
+        -- A failed COMMIT leaves the session state unknown; never reuse it.
+        discard_conn(conn)
+        return nil, commit_err
+    end
+
+    release_conn(conn)
+    return value, work_err
+end
+
+local function query_row_with(env_config, tx, sql, ...)
+    if tx then
+        return tx:query_row(sql, ...)
+    end
+    return db.query_row(env_config, sql, ...)
+end
+
+local function query_with(env_config, tx, sql, ...)
+    if tx then
+        return tx:query(sql, ...)
+    end
+    return db.query(env_config, sql, ...)
 end
 
 -- Get a user by email
@@ -129,7 +236,7 @@ end
 -- @param slug: article slug
 -- @return article: table with article data, or nil
 -- @return err: error message, or nil
-function db.get_article_by_slug(env_config, slug)
+function db.get_article_by_slug(env_config, slug, tx)
     local sql = [[
         SELECT a.id, a.slug, a.title, a.description, a.body,
                iso8601(a.created_at) AS created_at, iso8601(a.updated_at) AS updated_at,
@@ -139,7 +246,7 @@ function db.get_article_by_slug(env_config, slug)
         JOIN users u ON a.author_id = u.id
         WHERE a.slug = $1
     ]]
-    local row, err = db.query_row(env_config, sql, slug)
+    local row, err = query_row_with(env_config, tx, sql, slug)
     if not row then
         return nil, err
     end
@@ -230,14 +337,14 @@ end
 -- @param article: table with slug, title, description, body, author_id
 -- @return article: table with created article data, or nil
 -- @return err: error message, or nil
-function db.create_article(env_config, article)
+function db.create_article(env_config, article, tx)
     local sql = [[
         INSERT INTO articles (slug, title, description, body, author_id)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id, slug, title, description, body, author_id,
                   iso8601(created_at) AS created_at, iso8601(updated_at) AS updated_at
     ]]
-    local row, err = db.query_row(env_config, sql, article.slug, article.title, article.description, article.body, article.author_id)
+    local row, err = query_row_with(env_config, tx, sql, article.slug, article.title, article.description, article.body, article.author_id)
     if not row then
         return nil, err
     end
@@ -249,7 +356,7 @@ end
 -- @param updates: table with fields to update
 -- @return article: table with updated article data, or nil
 -- @return err: error message, or nil
-function db.update_article(env_config, slug, updates)
+function db.update_article(env_config, slug, updates, tx)
     local fields = {}
     local values = {}
     local param_index = 1
@@ -263,7 +370,7 @@ function db.update_article(env_config, slug, updates)
     end
 
     if #fields == 0 then
-        return db.get_article_by_slug(env_config, slug)
+        return db.get_article_by_slug(env_config, slug, tx)
     end
 
     -- Always update updated_at
@@ -273,7 +380,7 @@ function db.update_article(env_config, slug, updates)
     local sql = "UPDATE articles SET " .. table.concat(fields, ", ") .. " WHERE slug = $" .. param_index
         .. " RETURNING id, slug, title, description, body, author_id,"
         .. " iso8601(created_at) AS created_at, iso8601(updated_at) AS updated_at"
-    local row, err = db.query_row(env_config, sql, unpack(values))
+    local row, err = query_row_with(env_config, tx, sql, unpack(values))
     if not row then
         return nil, err
     end
@@ -294,6 +401,50 @@ function db.delete_article(env_config, slug)
 end
 
 -- ==================== ARTICLE TAGS ====================
+
+-- Build a parameter list for an SQL IN (...) clause. The values themselves are
+-- always passed separately to PostgreSQL; only sequential placeholder numbers
+-- are assembled here.
+local function placeholders(first, count)
+    local values = {}
+    for index = first, first + count - 1 do
+        table.insert(values, "$" .. index)
+    end
+    return table.concat(values, ", ")
+end
+
+-- Get tags for a page of articles in one query.
+-- @param article_ids: table of article ids
+-- @return tags_by_article: article id -> ordered tag names
+-- @return err: error message, or nil
+function db.get_article_tags_for_articles(env_config, article_ids)
+    local tags_by_article = {}
+    if #article_ids == 0 then
+        return tags_by_article, nil
+    end
+
+    local sql = [[
+        SELECT at.article_id, t.name
+        FROM article_tags at
+        JOIN tags t ON t.id = at.tag_id
+        WHERE at.article_id IN (]] .. placeholders(1, #article_ids) .. [[)
+        ORDER BY at.article_id, t.name
+    ]]
+    local rows, err = db.query(env_config, sql, unpack(article_ids))
+    if not rows then
+        return nil, err
+    end
+
+    for _, row in ipairs(rows) do
+        local tags = tags_by_article[row.article_id]
+        if not tags then
+            tags = {}
+            tags_by_article[row.article_id] = tags
+        end
+        table.insert(tags, row.name)
+    end
+    return tags_by_article, nil
+end
 
 -- Get tags for an article
 -- @param article_id: article id
@@ -322,20 +473,15 @@ end
 -- @param name: tag name
 -- @return tag_id: number, or nil
 -- @return err: error message, or nil
-function db.get_or_create_tag(env_config, name)
-    -- Try to find existing tag
-    local sql = "SELECT id FROM tags WHERE name = $1"
-    local row, err = db.query_row(env_config, sql, name)
-    if err then
-        return nil, err
-    end
-    if row then
-        return row.id, nil
-    end
-
-    -- Create new tag
-    sql = "INSERT INTO tags (name) VALUES ($1) RETURNING id"
-    row, err = db.query_row(env_config, sql, name)
+function db.get_or_create_tag(env_config, name, tx)
+    -- One statement avoids the SELECT-then-INSERT race when concurrent
+    -- requests introduce the same tag.
+    local sql = [[
+        INSERT INTO tags (name) VALUES ($1)
+        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+    ]]
+    local row, err = query_row_with(env_config, tx, sql, name)
     if not row then
         return nil, err
     end
@@ -347,20 +493,20 @@ end
 -- @param tag_names: table of tag names
 -- @return success: boolean
 -- @return err: error message, or nil
-function db.set_article_tags(env_config, article_id, tag_names)
+function db.set_article_tags(env_config, article_id, tag_names, tx)
     -- First, clear existing tags
-    local ok, err = db.query(env_config, "DELETE FROM article_tags WHERE article_id = $1", article_id)
+    local ok, err = query_with(env_config, tx, "DELETE FROM article_tags WHERE article_id = $1", article_id)
     if not ok then
         return false, err
     end
 
     -- Add new tags
     for _, name in ipairs(tag_names) do
-        local tag_id, err = db.get_or_create_tag(env_config, name)
+        local tag_id, err = db.get_or_create_tag(env_config, name, tx)
         if not tag_id then
             return false, err
         end
-        ok, err = db.query(env_config, "INSERT INTO article_tags (article_id, tag_id) VALUES ($1, $2)", article_id, tag_id)
+        ok, err = query_with(env_config, tx, "INSERT INTO article_tags (article_id, tag_id) VALUES ($1, $2)", article_id, tag_id)
         if not ok then
             return false, err
         end
@@ -460,6 +606,38 @@ end
 
 -- ==================== FAVORITES ====================
 
+-- Get the subset of a page's articles favorited by one user in one query.
+-- @param user_id: current user id
+-- @param article_ids: table of article ids
+-- @return favorited_article_ids: article id -> true
+-- @return err: error message, or nil
+function db.get_favorited_article_ids(env_config, user_id, article_ids)
+    local favorited_article_ids = {}
+    if #article_ids == 0 then
+        return favorited_article_ids, nil
+    end
+
+    local params = { user_id }
+    for _, article_id in ipairs(article_ids) do
+        table.insert(params, article_id)
+    end
+    local sql = [[
+        SELECT article_id
+        FROM article_favorites
+        WHERE user_id = $1
+          AND article_id IN (]] .. placeholders(2, #article_ids) .. [[)
+    ]]
+    local rows, err = db.query(env_config, sql, unpack(params))
+    if not rows then
+        return nil, err
+    end
+
+    for _, row in ipairs(rows) do
+        favorited_article_ids[row.article_id] = true
+    end
+    return favorited_article_ids, nil
+end
+
 -- Check if user favorited article
 -- @param user_id: user id
 -- @param article_id: article id
@@ -504,6 +682,38 @@ function db.unfavorite_article(env_config, user_id, article_id)
 end
 
 -- ==================== FOLLOWS ====================
+
+-- Get the subset of a page's authors followed by one user in one query.
+-- @param follower_id: current user id
+-- @param author_ids: table of author ids, excluding follower_id
+-- @return followed_author_ids: author id -> true
+-- @return err: error message, or nil
+function db.get_followed_author_ids(env_config, follower_id, author_ids)
+    local followed_author_ids = {}
+    if #author_ids == 0 then
+        return followed_author_ids, nil
+    end
+
+    local params = { follower_id }
+    for _, author_id in ipairs(author_ids) do
+        table.insert(params, author_id)
+    end
+    local sql = [[
+        SELECT followee_id
+        FROM user_follows
+        WHERE follower_id = $1
+          AND followee_id IN (]] .. placeholders(2, #author_ids) .. [[)
+    ]]
+    local rows, err = db.query(env_config, sql, unpack(params))
+    if not rows then
+        return nil, err
+    end
+
+    for _, row in ipairs(rows) do
+        followed_author_ids[row.followee_id] = true
+    end
+    return followed_author_ids, nil
+end
 
 -- Check if user follows another user
 -- @param follower_id: follower user id

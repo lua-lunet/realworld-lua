@@ -9,9 +9,8 @@
 --
 -- It exists to dogfood the lunet binary release as a statics+proxy edge, the
 -- role nginx would play in a real deployment (see README.md, "Frontend").
--- Demo-grade:
--- requests are read in a single shot and every connection is closed after its
--- response — fine on loopback, not a production server.
+-- This uses the backend's strict HTTP/1.1 framing subset: one request per
+-- connection, bounded Content-Length body, and a Connection: close response.
 
 -- ./bin/?.lua is needed for require("lunet.jsonic") (used by lib/http.lua's
 -- JSON error responses); lunet-run handles package.cpath itself.
@@ -100,26 +99,23 @@ local function proxy_to_backend(client, raw_request)
 end
 
 local function handle_client(client)
-    local data = socket.read(client)
-    if not data then
+    local request, parse_err, parse_status = http.read_request(function()
+        return socket.read(client)
+    end)
+    if not request and not parse_err then
+        socket.close(client)
+        return
+    end
+    if not request then
+        socket.write(client, http.error_response(parse_status or 400, { parse_err or "Bad request" }))
         socket.close(client)
         return
     end
 
-    local method, path = data:match("^(%u+)%s+([^%s]+)")
-    if not method then
-        socket.write(client, http.error_response(400, { "Bad request" }))
-        socket.close(client)
-        return
-    end
-
-    local query_start = path:find("?")
-    if query_start then
-        path = path:sub(1, query_start - 1)
-    end
+    local path = request.path
 
     if path:sub(1, 5) == "/api/" then
-        proxy_to_backend(client, data)
+        proxy_to_backend(client, request.raw)
         socket.close(client)
         return
     end
@@ -136,9 +132,7 @@ local function handle_client(client)
         body = ssi(body)
     end
     local ctype = MIME[file:match("%.([^.]+)$") or ""] or "application/octet-stream"
-    -- Note: http.response only skips its default content-type when the key is
-    -- lowercase "content-type".
-    socket.write(client, http.response(200, { ["content-type"] = ctype }, body))
+    socket.write(client, http.response(200, { ["Content-Type"] = ctype }, body))
     socket.close(client)
 end
 

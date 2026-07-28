@@ -18,6 +18,13 @@ jobs:
       - uses: jdx/mise-action@v2
       - run: mise exec -- lua-language-server --check . --checklevel=Warning
 
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make deps
+      - run: make unit-test
+
   test:
     runs-on: ubuntu-latest
     services:

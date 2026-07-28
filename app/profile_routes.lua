@@ -10,6 +10,14 @@ local json_response = web.json_response
 local error_response = web.error_response
 local get_current_user = web.get_current_user
 
+local function optional_current_user(env_config, ctx)
+    local user, token, err = get_current_user(env_config, ctx)
+    if not user and ctx.headers["authorization"] then
+        return nil, token, err
+    end
+    return user, token, nil
+end
+
 -- Helper to format profile response
 local function format_profile(env_config, profile, current_user_id)
     local formatted = {
@@ -30,7 +38,10 @@ end
 
 -- Get profile
 router.route("GET", "/api/profiles/:username", function(env_config, ctx, params)
-    local user, token, err = get_current_user(env_config, ctx)
+    local user, token, err = optional_current_user(env_config, ctx)
+    if not user and err then
+        return error_response(401, err)
+    end
     local current_user_id = user and user.id or nil
     
     local profile = web.fetched(db.get_profile_by_username(env_config, params.username))

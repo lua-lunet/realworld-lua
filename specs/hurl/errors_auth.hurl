@@ -129,6 +129,30 @@ HTTP 401
 [Asserts]
 jsonpath "$.errors.token[0]" == "is missing"
 
+# The declared Token authorization scheme rejects other prefixes
+GET {{host}}/api/user
+Authorization: Bearer {{token}}
+HTTP 401
+[Asserts]
+jsonpath "$.errors.token[0]" == "is invalid"
+
+# Missing and empty update envelopes are invalid
+PUT {{host}}/api/user
+Authorization: Token {{token}}
+{}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.user[0]" == "must include at least one field"
+
+PUT {{host}}/api/user
+Authorization: Token {{token}}
+{
+  "user": {}
+}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.user[0]" == "must include at least one field"
+
 # Update email to empty string - should reject
 PUT {{host}}/api/user
 Authorization: Token {{token}}

@@ -58,6 +58,28 @@ jsonpath "$.articles" count == 1
 jsonpath "$.articlesCount" == 2
 jsonpath "$.articles[0].slug" == "{{slug1}}"
 
+# Reject non-integer and out-of-bounds pagination values
+GET {{host}}/api/articles?author=page_{{uid}}&limit=zero
+HTTP 422
+[Asserts]
+jsonpath "$.errors.limit[0]" == "must be an integer"
+
+GET {{host}}/api/articles?author=page_{{uid}}&limit=0
+HTTP 422
+[Asserts]
+jsonpath "$.errors.limit[0]" == "must be greater than or equal to 1"
+
+GET {{host}}/api/articles?author=page_{{uid}}&offset=-1
+HTTP 422
+[Asserts]
+jsonpath "$.errors.offset[0]" == "must be an integer"
+
+GET {{host}}/api/articles/feed?limit=0
+Authorization: Token {{token}}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.limit[0]" == "must be greater than or equal to 1"
+
 # Cleanup
 DELETE {{host}}/api/articles/{{slug1}}
 Authorization: Token {{token}}

@@ -17,7 +17,10 @@ tags:
   - name: Tags
   - name: User and Authentication
 servers:
+  - url: http://localhost:8081/api
+    description: Local development server
   - url: https://api.realworld.show/api
+    description: Public RealWorld example server
 paths:
   /users/login:
     post:

@@ -223,11 +223,14 @@ router.route("PUT", "/api/user", function(env_config, ctx, params)
     end
     
     local ok, data = pcall(json.decode, body)
-    if not ok or not data then
+    if not ok or type(data) ~= "table" then
         return error_response(422, { body = { "Invalid JSON" } })
     end
     
-    local user_data = data.user or {}
+    local user_data = data.user
+    if type(user_data) ~= "table" or user_data == JSON_NULL or next(user_data) == nil then
+        return error_response(422, { user = { "must include at least one field" } })
+    end
     
     -- Validate fields
     local errors = {}
