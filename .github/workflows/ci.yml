@@ -22,6 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libpq5 libsodium23 libuv1 libluajit-5.1-2
+          sodium_lib="$(ldconfig -p | grep -m1 libsodium.so | awk '{print $NF}')"
+          sudo ln -sf "$sodium_lib" "$(dirname "$sodium_lib")/libsodium.so"
+
       - run: make deps
       - run: make unit-test
 
