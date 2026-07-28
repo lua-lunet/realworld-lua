@@ -7,6 +7,7 @@ deps:
 	@./scripts/deps.sh
 
 init:
+	@test -f .env || { echo "ERROR: .env is missing. Copy .env.example to .env first."; exit 1; }
 	@echo "Checking dependencies..."
 	@command -v mise >/dev/null 2>&1 || { echo "ERROR: mise is not installed. Please install: curl https://mise.run | sh"; exit 1; }
 	@echo "  mise: OK"
@@ -21,12 +22,40 @@ init:
 	@echo "  hurl: OK"
 	@mise exec -- command -v lua-language-server >/dev/null 2>&1 || { echo "ERROR: lua-language-server is not installed via mise."; exit 1; }
 	@echo "  lua-language-server: OK"
+	@command -v psql >/dev/null 2>&1 || { echo "ERROR: psql is not installed. Install the PostgreSQL client first."; exit 1; }
+	@echo "  psql: OK"
 	@echo "Initializing database..."
 	@. ./.env; \
 	echo "  Connecting to PostgreSQL at $$PGHOST:$$PGPORT, database: $$PGDATABASE, user: $$PGUSER"; \
-	PGPASSWORD=$$PGPASSWORD psql -h $$PGHOST -p $$PGPORT -U $$PGUSER -d $$PGDATABASE -f sql/schema.sql >/dev/null 2>&1 \
-		|| echo "  WARNING: Could not initialize database. Using existing database."
-	@echo "Init complete."
+	PGPASSWORD=$$PGPASSWORD psql -v ON_ERROR_STOP=1 -h $$PGHOST -p $$PGPORT -U $$PGUSER -d $$PGDATABASE -f sql/schema.sql \
+		|| { echo "ERROR: schema initialization failed. Check PostgreSQL is running and the .env connection values are correct."; exit 1; }
+	@echo "Database initialized."
+
+db-up:
+	@test -f .env || { echo "ERROR: .env is missing. Copy .env.example to .env first."; exit 1; }
+	@docker compose up -d --wait postgres
+	@echo "PostgreSQL is ready. Run 'make init' to load the schema."
+
+db-down:
+	@docker compose down --volumes --remove-orphans
+	@echo "Disposable development database removed."
+
+dev: db-up init start
+	@echo "Development API is ready at http://localhost:8081/api."
+
+seed: init start
+	@./scripts/seed.sh
+
+api-docs:
+	@docker compose --profile docs up -d --wait api-docs
+	@echo "Swagger UI is available at http://localhost:8082/."
+
+api-docs-stop:
+	@docker compose --profile docs stop api-docs
+	@docker compose --profile docs rm -f api-docs
+
+docker-build:
+	@docker build --platform linux/amd64 -t realworld-lua .
 
 start:
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
@@ -99,6 +128,12 @@ lint:
 	@echo "Running lua-language-server..."
 	@mise exec -- lua-language-server --check . --checklevel=Warning
 
+unit-test:
+	@echo "Running focused Lua unit tests..."
+	@for test_file in tests/*_test.lua; do \
+		./bin/lunet-run "$$test_file" || exit $$?; \
+	done
+
 test: start
 	@echo "Running RealWorld API compatibility tests with Hurl..."
 	@HOST=http://localhost:8081 bash specs/run-api-tests-hurl.sh
@@ -131,20 +166,28 @@ help:
 	@echo ""
 	@echo "  make deps     - Fetch lunet binary release + build ext modules into bin/"
 	@echo "  make init     - Check dependencies and initialize the database"
+	@echo "  make db-up    - Start disposable PostgreSQL with Docker Compose"
+	@echo "  make db-down  - Remove the disposable PostgreSQL data and containers"
+	@echo "  make dev      - Start PostgreSQL, initialize the schema, and start the API"
+	@echo "  make seed     - Create an idempotent demo user and article"
 	@echo "  make lint     - Run lua-language-server static analysis"
 	@echo "  make start    - Start the lunet server on port 8081"
 	@echo "  make stop     - Stop the lunet server"
 	@echo "  make restart  - Restart the lunet server"
 	@echo "  make status   - Show server status (running/stopped)"
+	@echo "  make unit-test - Run focused Lua unit tests"
 	@echo "  make test     - Run RealWorld API compatibility tests with Hurl"
 	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083"
 	@echo "  make frontend-stop - Stop the edge server"
 	@echo "  make bundle   - Repack release + app into a self-extracting dist/*.run"
 	@echo "  make load-test - Run read-dominated load test with hey (concurrency 1 -> 64)"
+	@echo "  make api-docs - Serve Swagger UI for specs/openapi.yml on port 8082"
+	@echo "  make api-docs-stop - Stop the local Swagger UI container"
+	@echo "  make docker-build - Build the Linux amd64 application image"
 	@echo "  make db-reset - Drop and recreate the database schema"
 	@echo "  make clean    - Remove runtime files in target/ (server must be stopped)"
 	@echo "  make all      - Run init, lint, start, and test (default)"
 	@echo "  make help     - Show this help message"
 	@echo ""
 
-.PHONY: all deps init lint start stop restart status test load-test db-reset clean help frontend frontend-stop bundle
+.PHONY: all deps init db-up db-down dev seed api-docs api-docs-stop docker-build lint start stop restart status unit-test test load-test db-reset clean help frontend frontend-stop bundle

@@ -148,6 +148,49 @@ HTTP 404
 [Asserts]
 jsonpath "$.errors.article[0]" == "not found"
 
+# Create article with a non-array tagList
+POST {{host}}/api/articles
+Authorization: Token {{token}}
+{
+  "article": {
+    "title": "Bad tags {{uid}}",
+    "description": "test",
+    "body": "test",
+    "tagList": "not-an-array"
+  }
+}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.tagList[0]" == "must be an array of strings"
+
+# Missing and empty update envelopes are invalid
+PUT {{host}}/api/articles/{{slug1}}
+Authorization: Token {{token}}
+{}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.article[0]" == "must include at least one field"
+
+PUT {{host}}/api/articles/{{slug1}}
+Authorization: Token {{token}}
+{
+  "article": {}
+}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.article[0]" == "must include at least one field"
+
+PUT {{host}}/api/articles/{{slug1}}
+Authorization: Token {{token}}
+{
+  "article": {
+    "tagList": ["valid", 1]
+  }
+}
+HTTP 422
+[Asserts]
+jsonpath "$.errors.tagList[0]" == "must be an array of strings"
+
 # Favorite unknown slug
 POST {{host}}/api/articles/unknown-slug-{{uid}}/favorite
 Authorization: Token {{token}}

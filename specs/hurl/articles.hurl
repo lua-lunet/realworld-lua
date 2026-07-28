@@ -37,6 +37,9 @@ jsonpath "$.article.updatedAt" matches "^\\d{4}-\\d{2}-\\d{2}T"
 jsonpath "$.article.favorited" == false
 jsonpath "$.article.favoritesCount" == 0
 jsonpath "$.article.author.username" == "art_{{uid}}"
+jsonpath "$.article.author.bio" == null
+jsonpath "$.article.author.image" == null
+jsonpath "$.article.author.following" == false
 [Captures]
 slug: jsonpath "$.article.slug"
 created_at: jsonpath "$.article.createdAt"
@@ -59,6 +62,9 @@ jsonpath "$.articles[0].updatedAt" matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:
 jsonpath "$.articles[0].favorited" isBoolean
 jsonpath "$.articles[0].favoritesCount" isInteger
 jsonpath "$.articles[0].author.username" isString
+jsonpath "$.articles[0].author.bio" == null
+jsonpath "$.articles[0].author.image" == null
+jsonpath "$.articles[0].author.following" == false
 
 # List by author
 GET {{host}}/api/articles?author=art_{{uid}}

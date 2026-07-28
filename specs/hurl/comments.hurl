@@ -40,6 +40,9 @@ jsonpath "$.comment.body" == "Test comment body"
 jsonpath "$.comment.createdAt" matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
 jsonpath "$.comment.updatedAt" matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
 jsonpath "$.comment.author.username" == "cmt_{{uid}}"
+jsonpath "$.comment.author.bio" == null
+jsonpath "$.comment.author.image" == null
+jsonpath "$.comment.author.following" == false
 [Captures]
 comment_id: jsonpath "$.comment.id"
 
@@ -55,6 +58,9 @@ jsonpath "$.comments[0].body" == "Test comment body"
 jsonpath "$.comments[0].createdAt" matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
 jsonpath "$.comments[0].updatedAt" matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
 jsonpath "$.comments[0].author.username" == "cmt_{{uid}}"
+jsonpath "$.comments[0].author.bio" == null
+jsonpath "$.comments[0].author.image" == null
+jsonpath "$.comments[0].author.following" == false
 
 # List comments without auth
 GET {{host}}/api/articles/{{slug}}/comments

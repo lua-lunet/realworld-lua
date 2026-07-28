@@ -30,6 +30,52 @@ sequenceDiagram
 - **lunet.lnt_shared**: sharded in-process dictionary with atomic counters — backs the request metrics on `/health` ([app/metrics.lua](app/metrics.lua))
 - **Custom router** ([app/router.lua](app/router.lua)): routing table with `:param` extraction, driven by a per-request context ([lib/http_context.lua](lib/http_context.lua)) — safe under concurrent coroutines
 - **Custom HTTP parsing** ([lib/http.lua](lib/http.lua)): request/response (de)serialization over raw sockets
+- **Context adapter** ([lib/http_context.lua](lib/http_context.lua)): a small native Lua request/response table (`method`, `headers`, `status`, `write`); it replaces the earlier `ngx`-shaped compatibility layer rather than providing an OpenResty runtime.
+
+## Ten-minute vertical slice
+
+After completing [Getting started](#getting-started), read and run the two Hurl files as one
+small journey: [`specs/hurl/auth.hurl`](specs/hurl/auth.hurl) registers a user and
+logs in; [`specs/hurl/articles.hurl`](specs/hurl/articles.hurl) creates and lists
+that user's article.
+
+1. **Minutes 0–2 — register.** Hurl sends `POST /api/users`. `server.lua` reads one
+   request, `app/router.lua` selects the auth handler, the handler decodes and
+   validates JSON, `app/db.lua` issues parameterized SQL, and the router encodes the
+   response that Hurl asserts.
+2. **Minutes 2–4 — log in.** `POST /api/users/login` follows the same path, adding
+   password verification and JWT creation; Hurl captures the token for the next
+   request.
+3. **Minutes 4–7 — create an article.** `POST /api/articles` authenticates the
+   token, validates title/description/body/tags, then uses an explicit database
+   transaction to create the article and its tags before serializing the article.
+4. **Minutes 7–10 — list it.** `GET /api/articles` routes to the list handler,
+   fetches rows from PostgreSQL, formats each article into the API shape, and lets
+   Hurl check the resulting list. Follow those calls in the named files before
+   moving on to another endpoint.
+
+## Deliberate limitations and tradeoffs
+
+- The HTTP parser supports a small HTTP/1.1 subset: one origin-form request per
+  connection, CRLF headers, a single value per header field, and optional decimal
+  `Content-Length`. It rejects `Transfer-Encoding`, including chunked bodies.
+- Every response closes its connection. There are no persistent connections or
+  request pipelining; this keeps socket handling visible but is not throughput
+  oriented.
+- PostgreSQL connections have a hard cap across idle, checked-out, and opening
+  connections. At the cap, a request coroutine waits cooperatively for a release;
+  that is bounded pool pressure, not a fast overload response.
+- Transactions are explicit callback blocks that keep work on one checked-out
+  connection and commit or roll back as a unit. Ordinary queries borrow and release
+  a connection individually, so multi-step writes must opt in to a transaction.
+- Article presentation intentionally makes extra queries per article for tags and,
+  when authenticated, favourite/follow state. This exposes the shaping work but is
+  an N+1 query pattern and will not scale well with large result pages.
+- PostgreSQL is chosen to keep relational SQL, constraints, and transactions in
+  view. It also means a local PostgreSQL service and credentials are required; this
+  is not an embedded-database example.
+- There is no load shedding. Under sustained overload the server and waiting
+  database coroutines queue work rather than deliberately returning `503`.
 
 ## Project structure
 
@@ -72,14 +118,13 @@ Runtime state (pid, logs) lives under `target/`; `make clean` empties it (and re
 
 ## Getting started
 
-Requires PostgreSQL and [mise](https://mise.jdx.dev/) (provides hurl, lua-language-server).
+The disposable Compose path requires Docker and the PostgreSQL client (`psql`); [mise](https://mise.jdx.dev/) provides hurl and lua-language-server.
 
 ```bash
 cp .env.example .env   # PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, JWT_SECRET
 
-make deps      # fetch lunet binaries into bin/ (seconds)
-make init      # check dependencies, load sql/schema.sql
-make start     # start the server on port 8081
+make dev       # start disposable PostgreSQL, load sql/schema.sql, start the API
+make seed      # create demo@example.com / demo-password and a demo article
 make test      # run the RealWorld API compatibility suite (Hurl)
 make load-test # read-dominated load test with hey, concurrency doubling 1 -> 64
 make lint      # lua-language-server static analysis
@@ -87,6 +132,12 @@ make stop      # stop the server
 make clean     # remove runtime files in target/
 make bundle    # repack release + app into a self-extracting dist/*.run
 ```
+
+`make db-down` removes the Compose container and its database volume. To use an existing PostgreSQL instance instead, skip `make db-up`, set its connection values in `.env`, then run `make init` and `make start`.
+
+## API documentation
+
+The local OpenAPI server is `http://localhost:8081/api`. Run `make api-docs` and open <http://localhost:8082/> to browse `specs/openapi.yml` in Swagger UI; run `make api-docs-stop` when finished.
 
 ## Binary dependencies (`bin/`)
 
@@ -111,7 +162,7 @@ Runtime shared libraries:
 ## Docker
 
 ```bash
-docker build -t realworld-lua .
+make docker-build
 docker run --rm -p 8081:8081 --env-file .env realworld-lua
 ```
 

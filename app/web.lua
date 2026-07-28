@@ -2,18 +2,15 @@
 
 local db = require("db")
 local jwt = require("jwt")
+local response = require("response")
 
 local web = {}
 
 -- Wrap a status and body into the router's response shape
-function web.json_response(status, data)
-    return { status = status, body = data }
-end
+web.json_response = response.json
 
 -- Wrap a status and errors table into the RealWorld error shape
-function web.error_response(status, errors)
-    return web.json_response(status, { errors = errors })
-end
+web.error_response = response.error
 
 -- Distinguish a failed query from an absent row: raises on error (the
 -- router turns it into a logged 500), so nil means only "not found"
@@ -24,8 +21,8 @@ function web.fetched(row, err)
     return row
 end
 
--- Resolve the authenticated user from the Authorization header
--- Accepts "Token <jwt>" or "Bearer <jwt>"
+-- Resolve the authenticated user from the Authorization header.
+-- The checked-in OpenAPI security scheme requires "Token <jwt>".
 -- @return user, token, errors (errors is a RealWorld errors table when user is nil)
 function web.get_current_user(env_config, ctx)
     local auth_header = ctx.headers["authorization"]
@@ -33,9 +30,9 @@ function web.get_current_user(env_config, ctx)
         return nil, nil, { token = { "is missing" } }
     end
 
-    local token = auth_header:match("^%S+%s+(%S+)")
+    local token = auth_header:match("^Token%s+([^%s]+)$")
     if not token then
-        return nil, nil, { token = { "is missing" } }
+        return nil, nil, { token = { "is invalid" } }
     end
 
     local payload = jwt.decode(token, env_config.JWT_SECRET)

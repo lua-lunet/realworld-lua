@@ -10,6 +10,74 @@ local crypto = require("lib.crypto")
 local json_response = web.json_response
 local error_response = web.error_response
 local get_current_user = web.get_current_user
+local JSON_NULL = json.null
+
+local function format_author(env_config, author, current_user_id, followed_author_ids)
+    local formatted = {
+        username = author.username,
+        bio = author.bio or JSON_NULL,
+        image = author.image or JSON_NULL,
+        following = false
+    }
+
+    if followed_author_ids then
+        local author_id = author.author_id or author.id
+        formatted.following = followed_author_ids[author_id] or false
+    elseif current_user_id and current_user_id ~= author.author_id and current_user_id ~= author.id then
+        local author_id = author.author_id or author.id
+        local is_following, _ = db.is_following(env_config, current_user_id, author_id)
+        formatted.following = is_following
+    end
+
+    return formatted
+end
+
+local function optional_current_user(env_config, ctx)
+    local user, token, err = get_current_user(env_config, ctx)
+    if not user and ctx.headers["authorization"] then
+        return nil, token, err
+    end
+    return user, token, nil
+end
+
+local function parse_pagination(ctx)
+    local function parse_integer(name, default, minimum)
+        local value = ctx.query[name]
+        if value == nil then
+            return default
+        end
+        if type(value) ~= "string" or not value:match("^%d+$") then
+            return nil, { [name] = { "must be an integer" } }
+        end
+        local number = tonumber(value)
+        if not number or number < minimum then
+            return nil, { [name] = { "must be greater than or equal to " .. minimum } }
+        end
+        return number
+    end
+
+    local limit, limit_err = parse_integer("limit", 20, 1)
+    if not limit then
+        return nil, nil, limit_err
+    end
+    local offset, offset_err = parse_integer("offset", 0, 0)
+    if not offset then
+        return nil, nil, offset_err
+    end
+    return limit, offset, nil
+end
+
+local function is_string_array(value)
+    if value == JSON_NULL or type(value) ~= "table" then
+        return false
+    end
+    for key, item in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #value or type(item) ~= "string" then
+            return false
+        end
+    end
+    return true
+end
 
 -- Helper to format article response
 local function format_article(env_config, article, current_user_id, include_body)
@@ -27,12 +95,7 @@ local function format_article(env_config, article, current_user_id, include_body
         updatedAt = article.updated_at,
         favorited = false,
         favoritesCount = article.favorites_count or 0,
-        author = {
-            username = article.username,
-            bio = article.bio,
-            image = article.image,
-            following = false
-        }
+        author = format_author(env_config, article, current_user_id)
     }
     
     if include_body then
@@ -52,9 +115,6 @@ local function format_article(env_config, article, current_user_id, include_body
         local is_favorited, _ = db.is_favorited(env_config, current_user_id, article.id)
         formatted.favorited = is_favorited
         
-        -- Check if current user is following the author
-        local is_following, _ = db.is_following(env_config, current_user_id, article.author_id)
-        formatted.author.following = is_following
     end
     
     return formatted
@@ -62,11 +122,58 @@ end
 
 -- Helper to format articles list (without body)
 local function format_articles_list(env_config, articles, current_user_id)
+    local article_ids = {}
+    local author_ids = {}
+    local seen_author_ids = {}
+    for _, article in ipairs(articles) do
+        table.insert(article_ids, article.id)
+        if current_user_id and article.author_id ~= current_user_id and not seen_author_ids[article.author_id] then
+            seen_author_ids[article.author_id] = true
+            table.insert(author_ids, article.author_id)
+        end
+    end
+
+    local tags_by_article, err = db.get_article_tags_for_articles(env_config, article_ids)
+    if not tags_by_article then
+        return nil, err
+    end
+
+    local favorited_article_ids = {}
+    local followed_author_ids = {}
+    if current_user_id then
+        local favorited, favorite_err = db.get_favorited_article_ids(env_config, current_user_id, article_ids)
+        if not favorited then
+            return nil, favorite_err
+        end
+        favorited_article_ids = favorited
+
+        local followed, follow_err = db.get_followed_author_ids(env_config, current_user_id, author_ids)
+        if not followed then
+            return nil, follow_err
+        end
+        followed_author_ids = followed
+    end
+
     local formatted = {}
     for _, article in ipairs(articles) do
-        table.insert(formatted, format_article(env_config, article, current_user_id, false))
+        table.insert(formatted, {
+            slug = article.slug,
+            title = article.title,
+            description = article.description,
+            tagList = tags_by_article[article.id] or {},
+            createdAt = article.created_at,
+            updatedAt = article.updated_at,
+            favorited = favorited_article_ids[article.id] or false,
+            favoritesCount = article.favorites_count or 0,
+            author = {
+                username = article.username,
+                bio = article.bio or JSON_NULL,
+                image = article.image or JSON_NULL,
+                following = followed_author_ids[article.author_id] or false
+            }
+        })
     end
-    return formatted
+    return formatted, nil
 end
 
 -- Helper to generate slug from title
@@ -84,12 +191,17 @@ end
 
 -- List articles
 router.route("GET", "/api/articles", function(env_config, ctx, params)
-    local user, token, err = get_current_user(env_config, ctx)
+    local user, token, err = optional_current_user(env_config, ctx)
+    if not user and err then
+        return error_response(401, err)
+    end
     local current_user_id = user and user.id or nil
     
     -- Parse query parameters
-    local limit = tonumber(ctx.query.limit) or 20
-    local offset = tonumber(ctx.query.offset) or 0
+    local limit, offset, pagination_err = parse_pagination(ctx)
+    if pagination_err then
+        return error_response(422, pagination_err)
+    end
     local author = ctx.query.author
     local tag = ctx.query.tag
     local favorited = ctx.query.favorited
@@ -121,8 +233,12 @@ router.route("GET", "/api/articles", function(env_config, ctx, params)
         return error_response(500, { database = { err } })
     end
     
+    local formatted_articles, format_err = format_articles_list(env_config, articles, current_user_id)
+    if not formatted_articles then
+        return error_response(500, { database = { format_err } })
+    end
     return json_response(200, {
-        articles = format_articles_list(env_config, articles, current_user_id),
+        articles = formatted_articles,
         articlesCount = total_count
     })
 end)
@@ -134,23 +250,32 @@ router.route("GET", "/api/articles/feed", function(env_config, ctx, params)
         return error_response(401, err)
     end
     
-    local limit = tonumber(ctx.query.limit) or 20
-    local offset = tonumber(ctx.query.offset) or 0
+    local limit, offset, pagination_err = parse_pagination(ctx)
+    if pagination_err then
+        return error_response(422, pagination_err)
+    end
     
     local articles, err, total_count = db.get_feed(env_config, user.id, limit, offset)
     if err then
         return error_response(500, { database = { err } })
     end
     
+    local formatted_articles, format_err = format_articles_list(env_config, articles, user.id)
+    if not formatted_articles then
+        return error_response(500, { database = { format_err } })
+    end
     return json_response(200, {
-        articles = format_articles_list(env_config, articles, user.id),
+        articles = formatted_articles,
         articlesCount = total_count
     })
 end)
 
 -- Get article by slug
 router.route("GET", "/api/articles/:slug", function(env_config, ctx, params)
-    local user, token, err = get_current_user(env_config, ctx)
+    local user, token, err = optional_current_user(env_config, ctx)
+    if not user and err then
+        return error_response(401, err)
+    end
     local current_user_id = user and user.id or nil
     
     local article = web.fetched(db.get_article_by_slug(env_config, params.slug))
@@ -174,11 +299,14 @@ router.route("POST", "/api/articles", function(env_config, ctx, params)
     end
     
     local ok, data = pcall(json.decode, body)
-    if not ok or not data then
+    if not ok or type(data) ~= "table" then
         return error_response(422, { article = { "Invalid JSON" } })
     end
     
-    local article_data = data.article or {}
+    local article_data = data.article
+    if type(article_data) ~= "table" then
+        return error_response(422, { article = { "must be an object" } })
+    end
     
     -- Validate required fields
     local errors = {}
@@ -195,29 +323,37 @@ router.route("POST", "/api/articles", function(env_config, ctx, params)
         return error_response(422, errors)
     end
     
+    if article_data.tagList ~= nil and not is_string_array(article_data.tagList) then
+        return error_response(422, { tagList = { "must be an array of strings" } })
+    end
+
     -- Generate slug if not provided
     local slug = article_data.slug or generate_slug(article_data.title)
     
-    local article, err = db.create_article(env_config, {
-        slug = slug,
-        title = article_data.title,
-        description = article_data.description or "",
-        body = article_data.body or "",
-        author_id = user.id
-    })
+    local article, err = db.transaction(env_config, function(tx)
+        local created, create_err = db.create_article(env_config, {
+            slug = slug,
+            title = article_data.title,
+            description = article_data.description or "",
+            body = article_data.body or "",
+            author_id = user.id
+        }, tx)
+        if not created then
+            return nil, create_err
+        end
+
+        if article_data.tagList and #article_data.tagList > 0 then
+            local tags_ok, tags_err = db.set_article_tags(env_config, created.id, article_data.tagList, tx)
+            if not tags_ok then
+                return nil, tags_err
+            end
+        end
+
+        return created, nil
+    end)
     
     if not article then
         return error_response(500, { database = { err or "Failed to create article" } })
-    end
-    
-    -- Set tags if provided
-    if article_data.tagList and #article_data.tagList > 0 then
-        local ok, err = db.set_article_tags(env_config, article.id, article_data.tagList)
-        if not ok then
-            -- Rollback: delete the article
-            db.delete_article(env_config, article.slug)
-            return error_response(500, { tags = { err or "Failed to set tags" } })
-        end
     end
     
     -- Reload article with author info
@@ -249,15 +385,18 @@ router.route("PUT", "/api/articles/:slug", function(env_config, ctx, params)
     end
     
     local ok, data = pcall(json.decode, body)
-    if not ok or not data then
+    if not ok or type(data) ~= "table" then
         return error_response(422, { article = { "Invalid JSON" } })
     end
     
-    local article_data = data.article or {}
+    local article_data = data.article
+    if type(article_data) ~= "table" or next(article_data) == nil then
+        return error_response(422, { article = { "must include at least one field" } })
+    end
     
     -- Validate tagList if present
-    if article_data.tagList == json.null then
-        return error_response(422, { tagList = { "must be an array" } })
+    if article_data.tagList ~= nil and not is_string_array(article_data.tagList) then
+        return error_response(422, { tagList = { "must be an array of strings" } })
     end
     
     -- Build updates
@@ -266,18 +405,24 @@ router.route("PUT", "/api/articles/:slug", function(env_config, ctx, params)
     if article_data.description then updates.description = article_data.description end
     if article_data.body then updates.body = article_data.body end
     
-    -- Update article
-    local article, err = db.update_article(env_config, params.slug, updates)
+    -- Update the article and replace tags on one connection, atomically.
+    local article, err = db.transaction(env_config, function(tx)
+        local updated, update_err = db.update_article(env_config, params.slug, updates, tx)
+        if not updated then
+            return nil, update_err
+        end
+
+        if article_data.tagList ~= nil then
+            local tags_ok, tags_err = db.set_article_tags(env_config, updated.id, article_data.tagList, tx)
+            if not tags_ok then
+                return nil, tags_err
+            end
+        end
+
+        return updated, nil
+    end)
     if not article then
         return error_response(500, { database = { err or "Failed to update article" } })
-    end
-    
-    -- Update tags if provided
-    if article_data.tagList then
-        local ok, err = db.set_article_tags(env_config, article.id, article_data.tagList)
-        if not ok then
-            return error_response(500, { tags = { err or "Failed to update tags" } })
-        end
     end
     
     -- Reload article with author info
@@ -319,12 +464,32 @@ router.route("GET", "/api/articles/:slug/comments", function(env_config, ctx, pa
         return error_response(404, { article = { "not found" } })
     end
     
-    local user, token, err = get_current_user(env_config, ctx)
+    local user, token, err = optional_current_user(env_config, ctx)
+    if not user and err then
+        return error_response(401, err)
+    end
     local current_user_id = user and user.id or nil
     
     local comments, err = db.get_comments_by_article(env_config, params.slug)
     if err then
         return error_response(500, { database = { err } })
+    end
+
+    local followed_author_ids = {}
+    if current_user_id then
+        local author_ids = {}
+        local seen_author_ids = {}
+        for _, comment in ipairs(comments or {}) do
+            if comment.author_id ~= current_user_id and not seen_author_ids[comment.author_id] then
+                seen_author_ids[comment.author_id] = true
+                table.insert(author_ids, comment.author_id)
+            end
+        end
+        local followed, follow_err = db.get_followed_author_ids(env_config, current_user_id, author_ids)
+        if not followed then
+            return error_response(500, { database = { follow_err } })
+        end
+        followed_author_ids = followed
     end
     
     -- Format comments
@@ -335,11 +500,7 @@ router.route("GET", "/api/articles/:slug/comments", function(env_config, ctx, pa
             body = comment.body,
             createdAt = comment.created_at,
             updatedAt = comment.updated_at,
-            author = {
-                username = comment.username,
-                bio = comment.bio,
-                image = comment.image
-            }
+            author = format_author(env_config, comment, current_user_id, followed_author_ids)
         })
     end
     
@@ -391,11 +552,7 @@ router.route("POST", "/api/articles/:slug/comments", function(env_config, ctx, p
         body = comment.body,
         createdAt = comment.created_at,
         updatedAt = comment.updated_at,
-        author = {
-            username = user.username,
-            bio = user.bio,
-            image = user.image
-        }
+        author = format_author(env_config, user, user.id)
     }
     
     return json_response(201, { comment = formatted })
@@ -416,6 +573,10 @@ router.route("DELETE", "/api/articles/:slug/comments/:id", function(env_config, 
     
     local comment = web.fetched(db.get_comment_by_id(env_config, tonumber(params.id)))
     if not comment then
+        return error_response(404, { comment = { "not found" } })
+    end
+
+    if comment.article_id ~= article.id then
         return error_response(404, { comment = { "not found" } })
     end
     
