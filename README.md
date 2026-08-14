@@ -157,7 +157,7 @@ LuaJIT, or via `mise`) is required only to run the fetcher script.
 
 Runtime shared libraries:
 
-- **macOS**: `brew install luajit libuv libpq libsodium`
+- **macOS**: `brew install luajit libuv libpq libsodium zlib`
 - **Debian/Ubuntu**: `apt install libluajit-5.1-2 libuv1 libpq5 libsodium23 libsqlite3-0`
   plus an unversioned `libsodium.so` symlink for FFI (created in the [Dockerfile](Dockerfile)).
 

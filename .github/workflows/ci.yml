@@ -129,7 +129,7 @@ jobs:
 
       - name: Install runtime libraries (macOS)
         if: runner.os == 'macOS'
-        run: brew install lua luajit libuv libpq libsodium postgresql@16
+        run: brew install lua luajit libuv libpq libsodium zlib postgresql@16
 
       - name: Start PostgreSQL (Linux)
         if: runner.os == 'Linux'
