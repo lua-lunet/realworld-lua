@@ -1,11 +1,9 @@
 -- Conduit API - RealWorld Example Application
 -- Built with lunet (libuv + LuaJIT coroutine runtime)
 
-package.path = "./app/?.lua;./lib/?.lua;./bin/?.lua;./?.lua;" .. package.path
--- lunet-run already prepends <exe-dir>/?.so and <exe-dir>/lunet/?.so to
--- package.cpath; keep the explicit entries so the layout also works when the
--- app is launched any other way.
-package.cpath = "./bin/?.so;./bin/lunet/?.so;" .. package.cpath
+package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
+-- lunet-run prepends its own directory to package.path/cpath, so lunet.*
+-- modules resolve without app-side configuration.
 
 io.stdout:setvbuf("no")
 

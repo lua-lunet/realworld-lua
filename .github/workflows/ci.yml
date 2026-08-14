@@ -16,12 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - run: make deps
       - run: mise exec -- lua-language-server --check . --checklevel=Warning
 
   unit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
 
       - name: Install runtime libraries
         run: |
@@ -87,10 +89,17 @@ jobs:
 
   # Repack the lunet binary release + app into a self-extracting single-file
   # .run (scripts/bundle.sh) and verify it on each OS. No xmake anywhere:
-  # the only build step is curl | tar of the tagged lunet release.
-  # Windows is intentionally disabled until the repack story works there
-  # (or lua-lunet/lunet#117 ships an embeddable SDK with a .lib).
-  # linux-arm64 is blocked on upstream publishing a linux/arm64 archive.
+  # the only build step is fetching the tagged lunet release.
+  #
+  # linux-arm64 is unblocked and verified via GitHub-hosted ubuntu-24.04-arm runners.
+  # The embeddable SDK (#117) shipped in v0.5.0.
+  #
+  # Windows leg remains disabled: upstream lunet-windows-amd64.zip does not ship
+  # the POSIX-only Rust extension modules (lunet.jsonic and lunet.lnt_shared)
+  # because their underlying crates are POSIX-only. Because this application
+  # requires both lunet.jsonic (JSON decode in router/HTTP) and lunet.lnt_shared
+  # (request metrics on /health), running on Windows remains blocked upstream
+  # until Windows builds or fallback implementations are provided.
   bundle:
     strategy:
       fail-fast: false
@@ -98,26 +107,29 @@ jobs:
         include:
           - os: ubuntu-24.04
             artifact: realworld-conduit-linux-amd64.run
+          - os: ubuntu-24.04-arm
+            artifact: realworld-conduit-linux-arm64.run
           - os: macos-14
             artifact: realworld-conduit-darwin-arm64.run
           # - os: windows-2022
-          #   artifact: realworld-conduit-windows-amd64.run  # disabled, see above
+          #   artifact: realworld-conduit-windows-amd64.zip  # disabled: missing POSIX-only Rust ext modules (jsonic, lnt_shared)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
 
       - name: Install runtime libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libpq5 libsodium23 libuv1 libluajit-5.1-2 postgresql-client
+            libpq5 libsodium23 libuv1 libluajit-5.1-2 postgresql postgresql-client
           sodium_lib="$(ldconfig -p | grep -m1 libsodium.so | awk '{print $NF}')"
           sudo ln -sf "$sodium_lib" "$(dirname "$sodium_lib")/libsodium.so"
 
       - name: Install runtime libraries (macOS)
         if: runner.os == 'macOS'
-        run: brew install luajit libuv libpq libsodium postgresql@16
+        run: brew install lua luajit libuv libpq libsodium zlib postgresql@16
 
       - name: Start PostgreSQL (Linux)
         if: runner.os == 'Linux'
@@ -153,8 +165,6 @@ jobs:
           cat bundle.log
           exit 1
 
-      - uses: jdx/mise-action@v2
-
       - name: Run RealWorld Hurl compatibility suite against the bundle
         run: HOST=http://localhost:8081 mise exec -- bash specs/run-api-tests-hurl.sh
 
@@ -170,12 +180,12 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: bundle
+    needs: [lint, unit-test, test, bundle]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: realworld-conduit-*.run
+          pattern: realworld-conduit-*
           path: dist
           merge-multiple: true
       - name: Publish release with bundles
