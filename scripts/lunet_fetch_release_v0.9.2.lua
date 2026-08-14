@@ -143,18 +143,21 @@ local function fetch_expected_digest(asset)
 	)
 	if not json or json == "" then
 		die("could not query release metadata: " .. api)
+		return ""
 	end
 	local assets_start = json:find('"assets"%s*:%s*%[') or 1
 	local needle = '"name":"' .. asset .. '"'
 	local _, name_end = json:find(needle, assets_start, true)
 	if not name_end then
 		die("asset " .. asset .. " not found in release " .. RELEASE_TAG .. " metadata")
+		return ""
 	end
 	local window_end = json:find('"browser_download_url"', name_end, true) or #json
 	local window = json:sub(name_end, window_end)
 	local hex = window:match('"digest"%s*:%s*"sha256:([0-9a-fA-F]+)"')
 	if not hex then
 		die("no SHA-256 digest published for " .. asset .. " (failing closed)")
+		return ""
 	end
 	return hex:lower()
 end
@@ -278,6 +281,7 @@ local function main()
 	if not marker then
 		rm_rf(STAGING)
 		die("could not write install marker in " .. STAGING)
+		return
 	end
 	marker:write(expected .. "\n")
 	marker:close()

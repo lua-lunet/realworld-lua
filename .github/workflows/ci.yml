@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
+      - run: make deps
       - run: mise exec -- lua-language-server --check . --checklevel=Warning
 
   unit-test:
@@ -115,19 +116,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
 
       - name: Install runtime libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libpq5 libsodium23 libuv1 libluajit-5.1-2 postgresql-client
+            libpq5 libsodium23 libuv1 libluajit-5.1-2 postgresql postgresql-client
           sodium_lib="$(ldconfig -p | grep -m1 libsodium.so | awk '{print $NF}')"
           sudo ln -sf "$sodium_lib" "$(dirname "$sodium_lib")/libsodium.so"
 
       - name: Install runtime libraries (macOS)
         if: runner.os == 'macOS'
-        run: brew install luajit libuv libpq libsodium postgresql@16
+        run: brew install lua luajit libuv libpq libsodium postgresql@16
 
       - name: Start PostgreSQL (Linux)
         if: runner.os == 'Linux'
@@ -162,8 +164,6 @@ jobs:
           echo "bundled server did not become healthy in time" >&2
           cat bundle.log
           exit 1
-
-      - uses: jdx/mise-action@v2
 
       - name: Run RealWorld Hurl compatibility suite against the bundle
         run: HOST=http://localhost:8081 mise exec -- bash specs/run-api-tests-hurl.sh
