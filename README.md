@@ -104,10 +104,10 @@ that user's article.
 │   ├── server.lua           #   second lunet instance serving a frontend + relaying /api
 │   └── public/              #   prebuilt frontend assets (gitignored; fetched by make frontend)
 ├── scripts/
-│   ├── deps.sh              # Fetches the lunet binary release into bin/
+│   ├── lunet_fetch_release_v0.9.2.lua # Fetches the lunet release into .lunet/
 │   ├── frontend.sh          # Fetches the prebuilt frontend into edge/public/
 │   └── bundle.sh            # Repacks release + app into a self-extracting .run
-├── bin/                     # lunet binaries (gitignored; created by make deps)
+├── .lunet/                  # lunet binaries and types (gitignored; created by make deps)
 ├── dist/                    # Self-extracting app bundles (gitignored; make bundle)
 ├── sql/schema.sql          # PostgreSQL schema
 ├── specs/                  # RealWorld Hurl compatibility suite + OpenAPI spec
@@ -139,19 +139,21 @@ make bundle    # repack release + app into a self-extracting dist/*.run
 
 The local OpenAPI server is `http://localhost:8081/api`. Run `make api-docs` and open <http://localhost:8082/> to browse `specs/openapi.yml` in Swagger UI; run `make api-docs-stop` when finished.
 
-## Binary dependencies (`bin/`)
+## Binary dependencies (`.lunet/`)
 
-`make deps` extracts the tagged release archive (`v0.4.4`) from
-[lunet releases](https://github.com/lua-lunet/lunet/releases) into `bin/`:
+`make deps` runs `scripts/lunet_fetch_release_v0.9.2.lua` to download and install the
+tagged `v0.9.2` release from [lunet releases](https://github.com/lua-lunet/lunet/releases)
+into `.lunet/v0.9.2/`. The fetcher verifies archive SHA-256 against release metadata,
+installs atomically into a staging directory, and is idempotent:
 
 - `lunet-run` + `lunet.so`
 - drivers `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`
-- `lunet/lnt_shared.lua` + `lunet/liblnt_shared.{dylib,so}`
-- `lunet/jsonic.lua` + `lunet/dkjson-encode-v2.10.lua` + `lunet/liblunet_jsonic.{dylib,so}`
+- `lunet/{lnt_shared,jsonic,paxe,postgres_tx,mysql_tx,sqlite3_tx}.lua` + C libraries
+- `types/` LuaCATS annotations (`.luarc.json` references this directory to power `make lint`) and Teal `.d.tl` definitions
 
-Each loader resolves its compiled library relative to itself, and `lunet-run` resolves
-drivers relative to its own location — the archive layout is kept as-is. `server.lua`
-adds `./bin/?.lua` to `package.path` for the pure-Lua loaders.
+`lunet-run` prepends its own directory to `package.path` and `package.cpath`, so all
+lunet modules resolve without app-side configuration. A host Lua interpreter (5.1+,
+LuaJIT, or via `mise`) is required only to run the fetcher script.
 
 Runtime shared libraries:
 
@@ -166,7 +168,7 @@ make docker-build
 docker run --rm -p 8081:8081 --env-file .env realworld-lua
 ```
 
-The image targets `linux/amd64` (the only Linux archive lunet publishes).
+The image targets `linux/amd64` (upstream also publishes `linux-arm64` and `windows-amd64`).
 
 ## Optional extra: a frontend edge (not part of the demo)
 
@@ -192,13 +194,13 @@ Open <http://localhost:8083/>. The page calls the API same-origin via the relay.
 
 The backend is licensed [MIT](LICENSE). Third-party material:
 
-In `bin/` (all part of the lunet release archive):
+In `.lunet/v0.9.2/` (all part of the lunet release archive):
 
-- **dkjson** (`bin/lunet/dkjson-encode-v2.10.lua`) — JSON encode/decode for Lua by
+- **dkjson** (`.lunet/v0.9.2/lunet/dkjson-encode-v2.10.lua`) — JSON encode/decode for Lua by
   David Kolf, [MIT](http://dkolf.de/dkjson-lua). The encode half of `lunet.jsonic`.
-- **jsonic** (`bin/lunet/jsonic.lua` + `bin/lunet/liblunet_jsonic.*`) — fast JSON parser
+- **jsonic** (`.lunet/v0.9.2/lunet/jsonic.lua` + `.lunet/v0.9.2/lunet/liblunet_jsonic.*`) — fast JSON parser
   ([jsonic](https://github.com/g1mv/jsonic), MIT/Apache-2.0) behind lunet's FFI binding;
-  the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.4.4/ext/jsonic).
+  the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.9.2/ext/jsonic).
 
 In `edge/public/` (optional, not committed):
 

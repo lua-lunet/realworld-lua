@@ -1,10 +1,19 @@
 all: init lint start test
 
+LUNET_TAG := v0.9.2
+LUNET_RUN := .lunet/$(LUNET_TAG)/lunet-run
+
 PID_FILE = target/lunet.pid
 EDGE_PID_FILE = target/edge.pid
 
 deps:
-	@./scripts/deps.sh
+	@if command -v lua >/dev/null 2>&1; then \
+		lua scripts/lunet_fetch_release_v0.9.2.lua; \
+	elif mise exec -- command -v lua >/dev/null 2>&1; then \
+		mise exec -- lua scripts/lunet_fetch_release_v0.9.2.lua; \
+	else \
+		echo "ERROR: lua is required (on PATH or via mise) to fetch the lunet release."; exit 1; \
+	fi
 
 init:
 	@test -f .env || { echo "ERROR: .env is missing. Copy .env.example to .env first."; exit 1; }
@@ -16,7 +25,7 @@ init:
 	@echo "  mise tools: OK"
 	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not installed. Please install: brew install curl"; exit 1; }
 	@echo "  curl: OK"
-	@test -x bin/lunet-run || ./scripts/deps.sh
+	@test -x $(LUNET_RUN) || $(MAKE) deps
 	@echo "  lunet-run: OK"
 	@mise exec -- hurl --version 2>/dev/null | grep -qE ' 8\.' || { echo "ERROR: hurl 8.x is required (via mise)."; exit 1; }
 	@echo "  hurl: OK"
@@ -63,7 +72,7 @@ start:
 	else \
 		mkdir -p target; \
 		. ./.env; \
-		nohup ./bin/lunet-run server.lua > target/server.log 2>&1 & \
+		nohup $(LUNET_RUN) server.lua > target/server.log 2>&1 & \
 		echo $$! > $(PID_FILE); \
 		sleep 1; \
 		kill -0 $$(cat $(PID_FILE)) 2>/dev/null \
@@ -88,12 +97,12 @@ restart: stop start
 
 frontend:
 	@./scripts/frontend.sh
-	@test -x bin/lunet-run || ./scripts/deps.sh
+	@test -x $(LUNET_RUN) || $(MAKE) deps
 	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
 		echo "Edge already running (PID $$(cat $(EDGE_PID_FILE)))."; \
 	else \
 		mkdir -p target; \
-		nohup ./bin/lunet-run edge/server.lua > target/edge.log 2>&1 & \
+		nohup $(LUNET_RUN) edge/server.lua > target/edge.log 2>&1 & \
 		echo $$! > $(EDGE_PID_FILE); \
 		sleep 1; \
 		kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null \
@@ -131,7 +140,7 @@ lint:
 unit-test:
 	@echo "Running focused Lua unit tests..."
 	@for test_file in tests/*_test.lua; do \
-		./bin/lunet-run "$$test_file" || exit $$?; \
+		$(LUNET_RUN) "$$test_file" || exit $$?; \
 	done
 
 test: start
@@ -164,7 +173,7 @@ clean:
 help:
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make deps     - Fetch lunet binary release + build ext modules into bin/"
+	@echo "  make deps     - Fetch the lunet $(LUNET_TAG) release into .lunet/$(LUNET_TAG)/"
 	@echo "  make init     - Check dependencies and initialize the database"
 	@echo "  make db-up    - Start disposable PostgreSQL with Docker Compose"
 	@echo "  make db-down  - Remove the disposable PostgreSQL data and containers"

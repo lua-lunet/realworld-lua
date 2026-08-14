@@ -5,16 +5,16 @@
 -- This is deliberately NOT part of the backend (server.lua): static file IO
 -- does not belong in the API demo. Run it as a second lunet-run instance:
 --
---     ./bin/lunet-run edge.lua
+--     ./.lunet/v0.9.2/lunet-run edge/server.lua
 --
 -- It exists to dogfood the lunet binary release as a statics+proxy edge, the
 -- role nginx would play in a real deployment (see README.md, "Frontend").
 -- This uses the backend's strict HTTP/1.1 framing subset: one request per
 -- connection, bounded Content-Length body, and a Connection: close response.
 
--- ./bin/?.lua is needed for require("lunet.jsonic") (used by lib/http.lua's
--- JSON error responses); lunet-run handles package.cpath itself.
-package.path = "./lib/?.lua;./bin/?.lua;./?.lua;" .. package.path
+-- lunet-run prepends its own directory to package.path/cpath, so lunet.*
+-- modules resolve without app-side configuration.
+package.path = "./lib/?.lua;./?.lua;" .. package.path
 
 local lunet = require("lunet")
 local socket = require("lunet.socket")

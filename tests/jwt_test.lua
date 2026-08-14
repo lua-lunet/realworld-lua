@@ -1,4 +1,4 @@
-package.path = "./app/?.lua;./lib/?.lua;./bin/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
 
 local jwt = require("jwt")
 

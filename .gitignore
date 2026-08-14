@@ -2,8 +2,8 @@
 .env*
 !.env.example
 
-# Vendored lunet binaries (fetched by scripts/deps.sh / make deps)
-bin/
+# lunet runtime (fetched by scripts/lunet_fetch_release_v0.9.2.lua / make deps)
+.lunet/
 
 # Prebuilt frontend assets (fetched by scripts/frontend.sh / make frontend)
 edge/public/
