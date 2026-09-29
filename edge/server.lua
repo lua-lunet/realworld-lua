@@ -30,6 +30,7 @@ local MIME = {
     html = "text/html; charset=utf-8",
     css = "text/css",
     js = "text/javascript",
+    mjs = "text/javascript",
     json = "application/json",
     map = "application/json",
     ico = "image/x-icon",

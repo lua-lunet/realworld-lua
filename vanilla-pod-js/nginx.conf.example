@@ -1,0 +1,67 @@
+# Example nginx front for the vanilla-pod-js RealWorld frontend in this
+# repository: gzip on, cache headers for the immutable static assets, and
+# /api/ reverse-proxied to the lunet backend. Never expose the lunet
+# backend directly in production — put a front like this in front of it.
+#
+# Run from the repository root (paths below are prefix-relative):
+#
+#   nginx -p "$PWD" -c vanilla-pod-js/nginx.conf.example
+#
+# (the pid and nginx logs land in target/, which is gitignored)
+#
+# This listens on :18083 (a scratch/demo port; change to taste). The
+# frontend itself is installed into edge/public/ by
+# scripts/frontend-vanilla-pod.sh.
+
+pid target/nginx-vanilla-pod.pid;
+error_log target/nginx-vanilla-pod-error.log;
+
+events { }
+
+http {
+  access_log target/nginx-vanilla-pod-access.log;
+
+  gzip on;
+  gzip_comp_level 6;
+  gzip_min_length 256;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+
+  types {
+    text/css css;
+    application/javascript js mjs;
+    application/json json;
+    image/png png;
+    image/jpeg jpg jpeg;
+    image/svg+xml svg;
+    text/plain txt;
+    font/woff2 woff2;
+  }
+  default_type text/html;
+
+  server {
+    listen 18083;
+    server_name localhost;
+
+    # Static frontend, installed by scripts/frontend-vanilla-pod.sh.
+    root edge/public;
+    index index.html;
+
+    # The frontend is a hash-router SPA: only / is requested server-side,
+    # but keep the RealWorld-style fallbacks for deep links.
+    location / {
+      try_files $uri $uri.html $uri/ /index.html;
+    }
+
+    # Content-hash-free static assets: short shared cache, must-revalidate.
+    location ~* \.(css|js|mjs|png|jpg|jpeg|gif|svg|woff2?|ttf|ico)$ {
+      expires 1h;
+      add_header Cache-Control "public, max-age=3600, must-revalidate";
+    }
+
+    location /api/ {
+      proxy_pass http://127.0.0.1:8081;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+  }
+}

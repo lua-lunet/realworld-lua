@@ -1,0 +1,22 @@
+{
+  "properties": {
+    "slug": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "tagList": { "elements": { "type": "string" } },
+    "createdAt": { "type": "timestamp" },
+    "updatedAt": { "type": "timestamp" },
+    "favorited": { "type": "boolean" },
+    "favoritesCount": { "type": "uint32" },
+    "author": {
+      "properties": {
+        "username": { "type": "string" },
+        "following": { "type": "boolean" }
+      },
+      "optionalProperties": {
+        "bio": { "type": "string", "nullable": true },
+        "image": { "type": "string", "nullable": true }
+      }
+    }
+  }
+}

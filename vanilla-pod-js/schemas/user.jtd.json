@@ -1,0 +1,12 @@
+{
+  "properties": {
+    "email": { "type": "string" },
+    "token": { "type": "string" },
+    "username": { "type": "string" }
+  },
+  "optionalProperties": {
+    "id": { "type": "float64" },
+    "bio": { "type": "string", "nullable": true },
+    "image": { "type": "string", "nullable": true }
+  }
+}

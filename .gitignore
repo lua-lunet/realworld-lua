@@ -8,6 +8,9 @@
 # Prebuilt frontend assets (fetched by scripts/frontend.sh / make frontend)
 edge/public/
 
+# vanilla-pod-js check gate (npm devDependencies only; zero runtime deps)
+vanilla-pod-js/node_modules/
+
 # Self-extracting app bundles (scripts/bundle.sh / make bundle)
 dist/
 

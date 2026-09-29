@@ -1,0 +1,18 @@
+{
+  "properties": {
+    "id": { "type": "uint32" },
+    "createdAt": { "type": "timestamp" },
+    "updatedAt": { "type": "timestamp" },
+    "body": { "type": "string" },
+    "author": {
+      "properties": {
+        "username": { "type": "string" },
+        "following": { "type": "boolean" }
+      },
+      "optionalProperties": {
+        "bio": { "type": "string", "nullable": true },
+        "image": { "type": "string", "nullable": true }
+      }
+    }
+  }
+}

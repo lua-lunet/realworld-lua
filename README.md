@@ -190,6 +190,38 @@ Open <http://localhost:8083/>. The page calls the API same-origin via the relay.
   connection per request.
 - Hurl suite through the edge: `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
 
+## vanilla-pod-js frontend (measured)
+
+[![frontend served](https://img.shields.io/badge/frontend%20gzipped-23.4%20kB-green)](vanilla-pod-js/README.md)
+[![cold start](https://img.shields.io/badge/cold%20start-73%20ms-green)](vanilla-pod-js/README.md)
+[![RSS](https://img.shields.io/badge/RSS-11%20MB-green)](vanilla-pod-js/README.md)
+
+[vanilla-pod-js/](vanilla-pod-js/) is a second frontend option: the full Conduit
+RealWorld UI in framework-free, bundler-free vanilla JavaScript — light-DOM web
+components, JTD-validated frozen data at the API boundary, zero runtime
+dependencies, and no build step. Install it into the edge with
+`./scripts/frontend-vanilla-pod.sh`, or front it with nginx using
+[vanilla-pod-js/nginx.conf.example](vanilla-pod-js/nginx.conf.example)
+(statics + gzip + cache headers, `/api/` proxied to the backend).
+
+Measured on macOS arm64, lunet v0.9.2, PostgreSQL 16, browser page-load asset
+closure of the home route (16 files: HTML + theme CSS + all ES modules):
+
+| Metric | Value |
+|--------|-------|
+| Frontend, home page asset closure, raw | 114 kB (114,170 bytes) |
+| Frontend, home page asset closure, gzipped as served | 23.4 kB (23,949 bytes) |
+| Build steps before first paint | 0 (no bundler, no transpiler) |
+| lunet backend cold start (launch → `/health` 200) | 73 ms |
+| lunet backend RSS at idle | 11.0 MB |
+| lunet backend RSS after a 3,000-request burst (16 concurrent) | ~21 MB |
+| Read throughput (5 s, concurrency 16, `hey`) | ~4,300 requests/s |
+
+The browser parity of this frontend was verified against the real lunet
+backend end to end: register, sign in, global feed, tag filter, article page,
+comments, favourite toggle, follow toggle, profile (articles + favourites),
+settings save, and the editor (create article).
+
 ## Attribution
 
 The backend is licensed [MIT](LICENSE). Third-party material:
