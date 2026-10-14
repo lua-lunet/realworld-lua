@@ -100,13 +100,12 @@ that user's article.
 │   ├── crypto.lua          # libsodium FFI: hashing, HMAC, base64, CSPRNG
 │   ├── http.lua            # HTTP request parsing / response building
 │   └── http_context.lua    # Per-request context passed into router.handle()
-├── edge/                    # Optional add-on, not part of the backend demo:
-│   ├── server.lua           #   second lunet instance serving a frontend + relaying /api
-│   └── public/              #   prebuilt frontend assets (gitignored; fetched by make frontend)
+├── nginx.conf                # nginx front: statics, gzip, /api proxy (optional; make frontend)
+├── frontend/                 # Fetched frontend docroot (gitignored; make frontend)
 ├── scripts/
 │   ├── lunet_fetch_release_v0.9.2.lua # Fetches the lunet release into .lunet/
-│   ├── frontend.sh          # Fetches the prebuilt frontend into edge/public/
-│   └── bundle.sh            # Repacks release + app into a self-extracting .run
+│   ├── frontend.sh           # Fetches the prebuilt frontend into frontend/
+│   └── bundle.sh             # Repacks release + app into a self-extracting .run
 ├── .lunet/                  # lunet binaries and types (gitignored; created by make deps)
 ├── dist/                    # Self-extracting app bundles (gitignored; make bundle)
 ├── sql/schema.sql          # PostgreSQL schema
@@ -170,25 +169,27 @@ docker run --rm -p 8081:8081 --env-file .env realworld-lua
 
 The image targets `linux/amd64` (upstream also publishes `linux-arm64` and `windows-amd64`).
 
-## Optional extra: a frontend edge (not part of the demo)
+## Optional extra: the frontend behind nginx (not part of the demo)
 
-`edge/` serves a prebuilt frontend from a second lunet instance
-([edge/server.lua](edge/server.lua)) and relays `/api/*` to the backend on `:8081`:
+`make frontend` fetches a prebuilt frontend into `frontend/` and serves it
+through nginx ([nginx.conf](nginx.conf)) — gzip, cache headers, SPA fallbacks,
+and `/api/*` reverse-proxied to the backend on `:8081`:
 
 ```bash
 make frontend       # fetch the frontend (first run), serve on :8083
 make frontend-stop
 ```
 
-Open <http://localhost:8083/>. The page calls the API same-origin via the relay.
+Requires nginx on `PATH` (`brew install nginx` on macOS). Open
+<http://localhost:8083/>. The page calls the API same-origin via the proxy.
 
 - [scripts/frontend.sh](scripts/frontend.sh) fetches the pinned frontend (see
   [Attribution](#attribution)) and patches: API base → `/api`; dead theme-CDN link →
   vendored classic Conduit CSS.
-- `edge/server.lua` mirrors the frontend's `nginx/default.conf`: extensionless/SPA
-  fallbacks, one-pass SSI includes, `/api` relay. Demo-grade: single-shot reads, one
-  connection per request.
-- Hurl suite through the edge: `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
+- `nginx.conf` serves the static frontend and proxies `/api/` to the backend.
+  Demo-grade defaults on a high port; for production, adapt it into your
+  site's configuration rather than running it as-is.
+- Hurl suite through the frontend: `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
 
 ## vanilla-pod-js frontend (measured)
 
@@ -199,10 +200,9 @@ Open <http://localhost:8083/>. The page calls the API same-origin via the relay.
 [vanilla-pod-js/](vanilla-pod-js/) is a second frontend option: the full Conduit
 RealWorld UI in framework-free, bundler-free vanilla JavaScript — light-DOM web
 components, JTD-validated frozen data at the API boundary, zero runtime
-dependencies, and no build step. Install it into the edge with
-`./scripts/frontend-vanilla-pod.sh`, or front it with nginx using
-[vanilla-pod-js/nginx.conf.example](vanilla-pod-js/nginx.conf.example)
-(statics + gzip + cache headers, `/api/` proxied to the backend).
+dependencies, and no build step. Install it with
+`./scripts/frontend-vanilla-pod.sh`, then serve it with `make frontend`
+(nginx, [nginx.conf](nginx.conf)).
 
 Measured on macOS arm64, lunet v0.9.2, PostgreSQL 16, browser page-load asset
 closure of the home route (16 files: HTML + theme CSS + all ES modules):
@@ -234,7 +234,7 @@ In `.lunet/v0.9.2/` (all part of the lunet release archive):
   ([jsonic](https://github.com/g1mv/jsonic), MIT/Apache-2.0) behind lunet's FFI binding;
   the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.9.2/ext/jsonic).
 
-In `edge/public/` (optional, not committed):
+In `frontend/` (optional, not committed):
 
 - **[daodao-bot/realworld-html-js-simple](https://github.com/daodao-bot/realworld-html-js-simple)** —
   vanilla HTML/JS RealWorld frontend, pinned commit `cac2d502`, [Unlicense](https://unlicense.org);

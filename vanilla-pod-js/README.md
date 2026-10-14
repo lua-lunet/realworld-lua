@@ -45,17 +45,16 @@ With this repository's stack:
 
 ```sh
 # from the repository root
-./scripts/frontend-vanilla-pod.sh   # install this frontend into edge/public/
+./scripts/frontend-vanilla-pod.sh   # install this frontend into frontend/
 make start                          # lunet backend on :8081
-./.lunet/v0.9.2/lunet-run edge/server.lua   # edge serves the frontend on :8083
+make frontend                       # nginx serves the frontend on :8083
 ```
 
 Then open <http://localhost:8083/>. Seeded demo login:
 `demo@example.com` / `demo-password` (see `scripts/seed.sh`).
 
-For a production-shaped front, use nginx with gzip + cache headers — see
-[`nginx.conf.example`](nginx.conf.example) (statics on a high port, `/api/`
-proxied to the backend).
+The nginx front (repo-root [../nginx.conf](../nginx.conf)) does gzip + cache
+headers and proxies `/api/` to the backend.
 
 ## Check gate
 

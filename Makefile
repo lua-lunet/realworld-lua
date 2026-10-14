@@ -4,7 +4,8 @@ LUNET_TAG := v0.9.2
 LUNET_RUN := .lunet/$(LUNET_TAG)/lunet-run
 
 PID_FILE = target/lunet.pid
-EDGE_PID_FILE = target/edge.pid
+NGINX_PID_FILE = target/nginx.pid
+NGINX = nginx -p "$(CURDIR)" -c nginx.conf
 
 deps:
 	@if command -v lua >/dev/null 2>&1; then \
@@ -97,33 +98,29 @@ restart: stop start
 
 frontend:
 	@./scripts/frontend.sh
-	@test -x $(LUNET_RUN) || $(MAKE) deps
-	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
-		echo "Edge already running (PID $$(cat $(EDGE_PID_FILE)))."; \
+	@command -v nginx >/dev/null 2>&1 || { echo "ERROR: nginx is not installed. Install nginx first (e.g. brew install nginx)."; exit 1; }
+	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
+		echo "nginx already running (PID $$(cat $(NGINX_PID_FILE)))."; \
 	else \
 		mkdir -p target; \
-		nohup $(LUNET_RUN) edge/server.lua > target/edge.log 2>&1 & \
-		echo $$! > $(EDGE_PID_FILE); \
+		$(NGINX); \
 		sleep 1; \
-		kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null \
-			|| { echo "ERROR: edge died at startup (port already in use?). See target/edge.log"; rm -f $(EDGE_PID_FILE); exit 1; }; \
 		curl -fsS http://localhost:8083/ >/dev/null \
-			&& echo "Edge serving the frontend on http://localhost:8083 (PID $$(cat $(EDGE_PID_FILE)))." \
-			|| { echo "ERROR: edge failed to start. See target/edge.log"; exit 1; }; \
+			&& echo "nginx serving the frontend on http://localhost:8083 (proxying /api/ to :8081)." \
+			|| { echo "ERROR: nginx failed to start. See target/nginx-error.log"; exit 1; }; \
 	fi
 
 bundle:
 	@./scripts/bundle.sh
 
 frontend-stop:
-	@if [ -f $(EDGE_PID_FILE) ] && kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; then \
-		kill $$(cat $(EDGE_PID_FILE)); \
-		while kill -0 $$(cat $(EDGE_PID_FILE)) 2>/dev/null; do sleep 1; done; \
-		rm -f $(EDGE_PID_FILE); \
-		echo "Edge stopped."; \
+	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
+		$(NGINX) -s quit; \
+		while [ -f $(NGINX_PID_FILE) ]; do sleep 0.2; done; \
+		echo "nginx stopped."; \
 	else \
-		rm -f $(EDGE_PID_FILE); \
-		echo "Edge is not running."; \
+		rm -f $(NGINX_PID_FILE); \
+		echo "nginx is not running."; \
 	fi
 
 status:
@@ -163,8 +160,8 @@ clean:
 		echo "ERROR: server appears to be running ($(PID_FILE) exists). Run 'make stop' first."; \
 		exit 1; \
 	fi
-	@if [ -f $(EDGE_PID_FILE) ]; then \
-		echo "ERROR: edge appears to be running ($(EDGE_PID_FILE) exists). Run 'make frontend-stop' first."; \
+	@if [ -f $(NGINX_PID_FILE) ]; then \
+		echo "ERROR: nginx appears to be running ($(NGINX_PID_FILE) exists). Run 'make frontend-stop' first."; \
 		exit 1; \
 	fi
 	@find target -mindepth 1 ! -name .keep -delete
@@ -186,8 +183,8 @@ help:
 	@echo "  make status   - Show server status (running/stopped)"
 	@echo "  make unit-test - Run focused Lua unit tests"
 	@echo "  make test     - Run RealWorld API compatibility tests with Hurl"
-	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083"
-	@echo "  make frontend-stop - Stop the edge server"
+	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083 with nginx"
+	@echo "  make frontend-stop - Stop the nginx frontend"
 	@echo "  make bundle   - Repack release + app into a self-extracting dist/*.run"
 	@echo "  make load-test - Run read-dominated load test with hey (concurrency 1 -> 64)"
 	@echo "  make api-docs - Serve Swagger UI for specs/openapi.yml on port 8082"
