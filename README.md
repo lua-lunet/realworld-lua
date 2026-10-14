@@ -32,6 +32,28 @@ sequenceDiagram
 - **Custom HTTP parsing** ([lib/http.lua](lib/http.lua)): request/response (de)serialization over raw sockets
 - **Context adapter** ([lib/http_context.lua](lib/http_context.lua)): a small native Lua request/response table (`method`, `headers`, `status`, `write`); it replaces the earlier `ngx`-shaped compatibility layer rather than providing an OpenResty runtime.
 
+## Resource footprint
+
+Measured against two other RealWorld demo apps (Node.js and Python/Django):
+
+| Metric | Lunet | Node.js | Python/Django |
+|--------|-------|---------|---------------|
+| Docker Image | 193 MB | ~450 MB | ~400 MB |
+| Runtime Memory | 6.2 MB idle, 11.6 MB warm | ~50 MB | ~80 MB |
+| Cold Start | 40 ms | ~500 ms | ~1 s |
+
+Lunet provides the async I/O capabilities of Node.js with the resource
+efficiency of native code.
+
+Measurement context for the Lunet column: macOS arm64, colima
+(Virtualization.Framework), lunet v0.9.2, PostgreSQL 16 (Docker Compose).
+Docker image: `make docker-build` variant for `linux/arm64`. Runtime
+memory: `VmRSS` of the server process inside the container, idle and after
+a `hey -z 5s -c 16 /api/articles` burst (5,089 requests, all 200; stable
+after idle settle). Cold start: launch → `/health` 200, host-native
+(through `docker run` the same check is 121 ms, which is container
+orchestration overhead, not application boot).
+
 ## Ten-minute vertical slice
 
 After completing [Getting started](#getting-started), read and run the two Hurl files as one
