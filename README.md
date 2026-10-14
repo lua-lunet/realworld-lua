@@ -16,7 +16,7 @@ sequenceDiagram
     participant PostgreSQL
 
     Client->>Server: HTTP request (TCP)
-    Server->>Lua: router.handle(ctx) — one lunet coroutine per connection; request JSON decoded by lunet.jsonic (Rust)
+    Server->>Lua: router.handle(ctx) — one lunet coroutine per connection, request JSON decoded by lunet.jsonic (Rust)
     Lua->>PostgreSQL: lunet.postgres (libuv thread pool, coroutine-safe)
     PostgreSQL-->>Lua: rows
     Lua-->>Server: response JSON encoded by dkjson (vendored with lunet.jsonic)
