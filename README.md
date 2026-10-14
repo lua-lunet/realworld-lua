@@ -182,6 +182,8 @@ make frontend-stop
 
 Requires nginx on `PATH` (`brew install nginx` on macOS). Open
 <http://localhost:8083/>. The page calls the API same-origin via the proxy.
+Port overrides, in case either default collides with something on the
+machine: `make frontend FRONTEND_PORT=18443 BACKEND_PORT=8084`.
 
 - [scripts/frontend.sh](scripts/frontend.sh) fetches the pinned frontend (see
   [Attribution](#attribution)) and patches: API base → `/api`; dead theme-CDN link →

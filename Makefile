@@ -5,7 +5,10 @@ LUNET_RUN := .lunet/$(LUNET_TAG)/lunet-run
 
 PID_FILE = target/lunet.pid
 NGINX_PID_FILE = target/nginx.pid
-NGINX = nginx -p "$(CURDIR)" -c nginx.conf
+FRONTEND_PORT ?= 8083
+BACKEND_PORT ?= 8081
+NGINX_CONF = target/nginx.conf
+NGINX = nginx -p "$(CURDIR)" -c $(NGINX_CONF)
 
 deps:
 	@if command -v lua >/dev/null 2>&1; then \
@@ -99,14 +102,18 @@ restart: stop start
 frontend:
 	@./scripts/frontend.sh
 	@command -v nginx >/dev/null 2>&1 || { echo "ERROR: nginx is not installed. Install nginx first (e.g. brew install nginx)."; exit 1; }
+	@mkdir -p target; \
+	sed -e "s/^    listen 8083;/    listen $(FRONTEND_PORT);/" \
+	    -e "s|proxy_pass http://127.0.0.1:8081;|proxy_pass http://127.0.0.1:$(BACKEND_PORT);|" \
+	    nginx.conf > $(NGINX_CONF); \
+	grep -q "listen $(FRONTEND_PORT);" $(NGINX_CONF) || { echo "ERROR: failed to template $(NGINX_CONF)"; exit 1; }
 	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
 		echo "nginx already running (PID $$(cat $(NGINX_PID_FILE)))."; \
 	else \
-		mkdir -p target; \
 		$(NGINX); \
 		sleep 1; \
-		curl -fsS http://localhost:8083/ >/dev/null \
-			&& echo "nginx serving the frontend on http://localhost:8083 (proxying /api/ to :8081)." \
+		curl -fsS http://localhost:$(FRONTEND_PORT)/ >/dev/null \
+			&& echo "nginx serving the frontend on http://localhost:$(FRONTEND_PORT) (proxying /api/ to :$(BACKEND_PORT))." \
 			|| { echo "ERROR: nginx failed to start. See target/nginx-error.log"; exit 1; }; \
 	fi
 
@@ -114,6 +121,10 @@ bundle:
 	@./scripts/bundle.sh
 
 frontend-stop:
+	@mkdir -p target; \
+	sed -e "s/^    listen 8083;/    listen $(FRONTEND_PORT);/" \
+	    -e "s|proxy_pass http://127.0.0.1:8081;|proxy_pass http://127.0.0.1:$(BACKEND_PORT);|" \
+	    nginx.conf > $(NGINX_CONF)
 	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
 		$(NGINX) -s quit; \
 		while [ -f $(NGINX_PID_FILE) ]; do sleep 0.2; done; \
@@ -183,7 +194,7 @@ help:
 	@echo "  make status   - Show server status (running/stopped)"
 	@echo "  make unit-test - Run focused Lua unit tests"
 	@echo "  make test     - Run RealWorld API compatibility tests with Hurl"
-	@echo "  make frontend - Fetch the prebuilt frontend and serve it on port 8083 with nginx"
+	@echo "  make frontend - Fetch the prebuilt frontend and serve it with nginx (FRONTEND_PORT=8083, proxying /api/ to BACKEND_PORT=8081)"
 	@echo "  make frontend-stop - Stop the nginx frontend"
 	@echo "  make bundle   - Repack release + app into a self-extracting dist/*.run"
 	@echo "  make load-test - Run read-dominated load test with hey (concurrency 1 -> 64)"
