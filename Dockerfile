@@ -3,7 +3,7 @@
 # Pure binary-dependency build: no xmake, no cargo, no toolchain.
 #
 # Stage 1 runs the official fetcher (Lua 5.1 script), which downloads,
-# digest-verifies and installs the tagged lunet release into .lunet/v0.9.2/.
+# digest-verifies and installs the tagged lunet release into .lunet/v0.10.0/.
 # Stage 2 carries only the installed runtime and the app.
 #
 # Upstream publishes linux-amd64 and linux-arm64 archives (since v0.6.1); the
@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY scripts/lunet_fetch_release_v0.9.2.lua scripts/
-RUN lua5.1 scripts/lunet_fetch_release_v0.9.2.lua
+COPY scripts/lunet_fetch_release_v0.10.0.lua scripts/
+RUN lua5.1 scripts/lunet_fetch_release_v0.10.0.lua
 
 # Runtime: only the shared libraries the vendored .so files link against
 FROM --platform=linux/amd64 debian:trixie-slim
@@ -61,4 +61,4 @@ RUN mkdir -p target
 ENV LUNET_HOST=0.0.0.0
 EXPOSE 8081
 
-CMD ["./.lunet/v0.9.2/lunet-run", "--dangerously-skip-loopback-restriction", "server.lua"]
+CMD ["./.lunet/v0.10.0/lunet-run", "--dangerously-skip-loopback-restriction", "server.lua"]

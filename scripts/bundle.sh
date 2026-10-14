@@ -9,7 +9,7 @@
 # same as for `make deps` (see README, "Binary dependencies").
 set -euo pipefail
 
-LUNET_TAG="v0.9.2"
+LUNET_TAG="v0.10.0"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 PAYLOAD=(.lunet app lib server.lua index.html sql)
@@ -22,9 +22,9 @@ OUT="$DIST/realworld-conduit-$OS-$ARCH.run"
 
 if [ ! -x "$ROOT/.lunet/$LUNET_TAG/lunet-run" ]; then
   if command -v lua >/dev/null 2>&1; then
-    (cd "$ROOT" && lua scripts/lunet_fetch_release_v0.9.2.lua)
+    (cd "$ROOT" && lua scripts/lunet_fetch_release_v0.10.0.lua)
   elif mise exec -- command -v lua >/dev/null 2>&1; then
-    (cd "$ROOT" && mise exec -- lua scripts/lunet_fetch_release_v0.9.2.lua)
+    (cd "$ROOT" && mise exec -- lua scripts/lunet_fetch_release_v0.10.0.lua)
   else
     echo "ERROR: lua is required (on PATH or via mise) to fetch the lunet release." >&2
     exit 1

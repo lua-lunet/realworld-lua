@@ -4,7 +4,7 @@
 --
 -- This file is a TEMPLATE: CI renders it per release as
 --   lunet_fetch_release_<tag>.lua
--- by substituting v0.9.2. Do not hand-edit rendered copies.
+-- by substituting v0.10.0. Do not hand-edit rendered copies.
 --
 -- Result layout (relative to the current working directory):
 --   .lunet/<tag>/lunet-run     (lunet-run.exe on Windows)
@@ -31,7 +31,7 @@
 -- certutil on Windows), tar (Windows 10+ ships bsdtar as tar.exe, which also
 -- reads .zip). Runs on Lua 5.1+ and LuaJIT.
 
-local RELEASE_TAG = "v0.9.2"
+local RELEASE_TAG = "v0.10.0"
 local REPO = "lua-lunet/lunet"
 
 local DEST = ".lunet/" .. RELEASE_TAG
@@ -135,35 +135,26 @@ end
 -- asset can never match a different asset's digest.
 local function fetch_expected_digest(asset)
 	local api = "https://api.github.com/repos/" .. REPO .. "/releases/tags/" .. RELEASE_TAG
-	local auth_header = ""
-	local token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
-	if token and token ~= "" then
-		auth_header = ' -H "Authorization: Bearer ' .. token .. '"'
-	end
 	local json = capture(
 		'curl -fsSL --connect-timeout 10 --max-time 30'
-			.. auth_header
 			.. ' -H "Accept: application/vnd.github+json"'
 			.. ' -H "User-Agent: lunet-fetch-release"'
 			.. ' "' .. api .. '"'
 	)
 	if not json or json == "" then
 		die("could not query release metadata: " .. api)
-		return ""
 	end
 	local assets_start = json:find('"assets"%s*:%s*%[') or 1
 	local needle = '"name":"' .. asset .. '"'
 	local _, name_end = json:find(needle, assets_start, true)
 	if not name_end then
 		die("asset " .. asset .. " not found in release " .. RELEASE_TAG .. " metadata")
-		return ""
 	end
 	local window_end = json:find('"browser_download_url"', name_end, true) or #json
 	local window = json:sub(name_end, window_end)
 	local hex = window:match('"digest"%s*:%s*"sha256:([0-9a-fA-F]+)"')
 	if not hex then
 		die("no SHA-256 digest published for " .. asset .. " (failing closed)")
-		return ""
 	end
 	return hex:lower()
 end
@@ -287,7 +278,6 @@ local function main()
 	if not marker then
 		rm_rf(STAGING)
 		die("could not write install marker in " .. STAGING)
-		return
 	end
 	marker:write(expected .. "\n")
 	marker:close()

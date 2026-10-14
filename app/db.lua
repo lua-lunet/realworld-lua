@@ -20,7 +20,10 @@ local MAX_IDLE_CONNECTIONS = 100
 
 -- MAX_OPEN_CONNECTIONS is the hard cap for idle, checked-out, and connections
 -- currently opening. At the cap, callers yield briefly instead of opening more.
-local MAX_OPEN_CONNECTIONS = 100
+-- It must stay below the server's max_connections (PostgreSQL's default is 100,
+-- which also reserves superuser slots), or the server refuses connections under
+-- pool pressure and requests fail. Override with PGPOOL_MAX.
+local MAX_OPEN_CONNECTIONS = tonumber(os.getenv("PGPOOL_MAX")) or 40
 local open_connections = 0
 
 -- Open a new connection using values from the passed-in env_config table
