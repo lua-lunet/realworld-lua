@@ -109,6 +109,20 @@ end
 local b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local b64url_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
+local function build_decode_map(chars)
+    local map = {}
+    for i = 1, 64 do
+        map[chars:sub(i, i)] = i - 1
+    end
+    map["="] = 0
+    return map
+end
+
+-- Pulling constant mappings onto the request path is not necessary behaviour:
+-- decode maps are startup state, not per-call work.
+local b64_decode_map = build_decode_map(b64_chars)
+local b64url_decode_map = build_decode_map(b64url_chars)
+
 function crypto.base64_encode(data, url_safe)
     local chars = url_safe and b64url_chars or b64_chars
     local result = {}
@@ -134,12 +148,7 @@ function crypto.base64_encode(data, url_safe)
 end
 
 function crypto.base64_decode(data, url_safe)
-    local chars = url_safe and b64url_chars or b64_chars
-    local decode_map = {}
-    for i = 1, 64 do
-        decode_map[chars:sub(i, i)] = i - 1
-    end
-    decode_map["="] = 0
+    local decode_map = url_safe and b64url_decode_map or b64_decode_map
 
     data = data:gsub("=", "")
     local pad = #data % 4
