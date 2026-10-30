@@ -1,6 +1,6 @@
 all: init lint start test
 
-LUNET_TAG := v0.10.0
+LUNET_TAG := v0.15.1
 LUNET_RUN := .lunet/$(LUNET_TAG)/lunet-run
 
 PID_FILE = target/lunet.pid
@@ -12,9 +12,9 @@ NGINX = nginx -p "$(CURDIR)" -c $(NGINX_CONF)
 
 deps:
 	@if command -v lua >/dev/null 2>&1; then \
-		lua scripts/lunet_fetch_release_v0.10.0.lua; \
+		lua scripts/lunet_fetch_release_v0.15.1.lua; \
 	elif mise exec -- command -v lua >/dev/null 2>&1; then \
-		mise exec -- lua scripts/lunet_fetch_release_v0.10.0.lua; \
+		mise exec -- lua scripts/lunet_fetch_release_v0.15.1.lua; \
 	else \
 		echo "ERROR: lua is required (on PATH or via mise) to fetch the lunet release."; exit 1; \
 	fi
@@ -146,7 +146,7 @@ lint:
 	@mise exec -- sh -c 'for p in app lib tests server.lua; do \
 		lua-language-server --check $$p --configpath=$$PWD/.luarc.json --checklevel=Warning || exit 1; \
 	done'
-	@echo "lua-language-server: OK (scripts/lunet_fetch_release_v0.10.0.lua is excluded: upstream-verbatim fetcher, not our code)"
+	@echo "lua-language-server: OK (scripts/lunet_fetch_release_v0.15.1.lua is excluded: upstream-verbatim fetcher, not our code)"
 
 unit-test:
 	@echo "Running focused Lua unit tests..."
