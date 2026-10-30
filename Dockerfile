@@ -51,7 +51,7 @@ COPY . .
 COPY --from=deps /app/.lunet ./.lunet
 
 RUN mkdir -p target
-
+RUN chmod +x ./start.sh
 # Database config is supplied at run time: docker run --env-file .env
 # 0.0.0.0 so the container's port mapping can reach the server (server.lua
 # defaults to 127.0.0.1, correct for bare-metal local dev but not for a
@@ -61,4 +61,4 @@ RUN mkdir -p target
 ENV LUNET_HOST=0.0.0.0
 EXPOSE 8081
 
-CMD ["./.lunet/v0.15.1/lunet-run", "--dangerously-skip-loopback-restriction", "server.lua"]
+CMD ["./start.sh", "--dangerously-skip-loopback-restriction"]

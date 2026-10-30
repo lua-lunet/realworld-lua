@@ -76,8 +76,12 @@ start:
 	else \
 		mkdir -p target; \
 		. ./.env; \
-		nohup $(LUNET_RUN) server.lua > target/server.log 2>&1 & \
-		echo $$! > $(PID_FILE); \
+		if [ -f ./start.sh ]; then \
+			nohup ./start.sh > target/server.log 2>&1 & _pid=$$!; \
+		else \
+			nohup $(LUNET_RUN) server.lua > target/server.log 2>&1 & _pid=$$!; \
+		fi; \
+		echo $$_pid > $(PID_FILE); \
 		sleep 1; \
 		kill -0 $$(cat $(PID_FILE)) 2>/dev/null \
 			|| { echo "ERROR: server died at startup (port already in use?). See target/server.log"; rm -f $(PID_FILE); exit 1; }; \
