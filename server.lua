@@ -35,56 +35,70 @@ local function read_file(path)
 end
 
 -- Three locations: `/health`, `/`, and `/api/*`
-local function handle_request(request)
+local function handle_request(request, persistent)
     metrics.count_request(request.method)
 
     if request.method == "GET" and request.path == "/health" then
-        return http.json_response(200, { status = "ok", requests = metrics.snapshot() }, nil, false)
+        return http.json_response(200, { status = "ok", requests = metrics.snapshot() }, nil, persistent)
     end
 
     if request.method == "GET" and request.path == "/" then
         local content = read_file("index.html")
         if content then
-            return http.response(200, { ["Content-Type"] = "text/html" }, content, nil, false)
+            return http.response(200, { ["Content-Type"] = "text/html" }, content, nil, persistent)
         end
-        return http.error_response(404, { "Not found" }, nil, false)
+        return http.error_response(404, { "Not found" }, nil, persistent)
     end
 
     if not request.path:find("^/api/") then
-        return http.error_response(404, { "Not found" }, nil, false)
+        return http.error_response(404, { "Not found" }, nil, persistent)
     end
 
     local ctx = http_context.new(request)
     ctx.env_config = env_config
     router.handle(ctx)
 
-    return http.response(ctx.status, ctx.res_headers, ctx.response_body(), nil, false)
+    return http.response(ctx.status, ctx.res_headers, ctx.response_body(), nil, persistent)
 end
 
 local function handle_client(client)
-    -- lib/http.lua reads the supported HTTP/1.1 subset incrementally, then
-    -- this server sends one Connection: close response and closes the socket.
-    local request, parse_err, parse_status = http.read_request(function()
-        return socket.read(client)
+    local conn = http.new_connection(function()
+        local chunk, err = socket.read(client)
+        if not chunk then return nil, err end
+        return chunk
     end)
-    if not request and not parse_err then
-        socket.close(client)
-        return
-    end
-    if not request then
-        socket.write(client, http.error_response(parse_status or 400, { parse_err or "Bad request" }, nil, false))
-        socket.close(client)
-        return
-    end
 
-    local ok, response = pcall(handle_request, request)
-    if not ok then
-        io.stderr:write("Request error: ", tostring(response), "\n")
-        response = http.error_response(500, { "Internal server error" }, nil, false)
-    end
+    while true do
+        local request, parse_err, parse_status = conn:next_request()
 
-    socket.write(client, response)
-    socket.close(client)
+        -- EOF (no request, no parse_status): close, return
+        if not request and not parse_status then
+            socket.close(client)
+            return
+        end
+
+        -- parse error
+        if not request then
+            socket.write(client, http.json_response(parse_status or 400, { error = parse_err }, nil, false))
+            socket.close(client)
+            return
+        end
+
+        local declared_close = request.headers["connection"] == "close"
+        local persistent = not declared_close and request.persistent_connection
+
+        local ok, response = pcall(handle_request, request, persistent)
+        if not ok then
+            io.stderr:write("Request error: ", tostring(response), "\n")
+            response = http.error_response(500, { "Internal server error" }, nil, persistent)
+        end
+
+        socket.write(client, response)
+        if not persistent then
+            socket.close(client)
+            return
+        end
+    end
 end
 
 lunet.spawn(function()
