@@ -1,7 +1,7 @@
 -- Authentication routes for RealWorld API
 -- Uses JWT for authentication and lunet.postgres for PostgreSQL
 
-local router = require("router")
+local router = require("lunet.http_router")
 local jwt = require("jwt")
 
 local json = require("lunet.jsonic")

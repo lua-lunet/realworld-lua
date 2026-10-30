@@ -9,11 +9,11 @@ io.stdout:setvbuf("no")
 
 local lunet = require("lunet")
 local socket = require("lunet.socket")
-local http = require("http")
-local http_context = require("http_context")
+local http = require("lunet.http")
+local http_context = require("lunet.http_context")
 
 local config = require("config")
-local router = require("router")
+local router = require("lunet.http_router")
 local metrics = require("metrics")
 require("routes") -- registers all routes with the router
 
@@ -39,26 +39,26 @@ local function handle_request(request)
     metrics.count_request(request.method)
 
     if request.method == "GET" and request.path == "/health" then
-        return http.json_response(200, { status = "ok", requests = metrics.snapshot() })
+        return http.json_response(200, { status = "ok", requests = metrics.snapshot() }, nil, false)
     end
 
     if request.method == "GET" and request.path == "/" then
         local content = read_file("index.html")
         if content then
-            return http.response(200, { ["Content-Type"] = "text/html" }, content)
+            return http.response(200, { ["Content-Type"] = "text/html" }, content, nil, false)
         end
-        return http.error_response(404, { "Not found" })
+        return http.error_response(404, { "Not found" }, nil, false)
     end
 
     if not request.path:find("^/api/") then
-        return http.error_response(404, { "Not found" })
+        return http.error_response(404, { "Not found" }, nil, false)
     end
 
     local ctx = http_context.new(request)
     ctx.env_config = env_config
     router.handle(ctx)
 
-    return http.response(ctx.status, ctx.res_headers, ctx.response_body())
+    return http.response(ctx.status, ctx.res_headers, ctx.response_body(), nil, false)
 end
 
 local function handle_client(client)
@@ -72,7 +72,7 @@ local function handle_client(client)
         return
     end
     if not request then
-        socket.write(client, http.error_response(parse_status or 400, { parse_err or "Bad request" }))
+        socket.write(client, http.error_response(parse_status or 400, { parse_err or "Bad request" }, nil, false))
         socket.close(client)
         return
     end
@@ -80,7 +80,7 @@ local function handle_client(client)
     local ok, response = pcall(handle_request, request)
     if not ok then
         io.stderr:write("Request error: ", tostring(response), "\n")
-        response = http.error_response(500, { "Internal server error" })
+        response = http.error_response(500, { "Internal server error" }, nil, false)
     end
 
     socket.write(client, response)

@@ -1,7 +1,7 @@
 package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
 
 local json = require("lunet.jsonic")
-local router = require("router")
+local router = require("lunet.http_router")
 
 local total = 0
 

@@ -1,7 +1,7 @@
 -- Profile routes for RealWorld API
 -- Handles profile retrieval, follow/unfollow
 
-local router = require("router")
+local router = require("lunet.http_router")
 local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")

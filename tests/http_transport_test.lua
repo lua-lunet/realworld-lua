@@ -1,6 +1,6 @@
 package.path = "./lib/?.lua;./?.lua;" .. package.path
 
-local http = require("http")
+local http = require("lunet.http")
 
 local total = 0
 
@@ -22,7 +22,7 @@ local response = http.response(200, {
     ["content-type"] = "application/problem+json",
     ["Connection"] = "keep-alive",
     ["Content-Length"] = "999",
-}, "ok")
+}, "ok", nil, false)
 check("one normalized content type", select(2, response:gsub("[Cc]ontent%-[Tt]ype:", "")) == 1)
 check("one generated content length", select(2, response:gsub("[Cc]ontent%-[Ll]ength:", "")) == 1)
 check("connection is explicitly close", response:find("connection: close\r\n", 1, true) ~= nil)
@@ -46,9 +46,9 @@ end
 rejected("incomplete body", "POST /api/users HTTP/1.1\r\nHost: example.test\r\nContent-Length: 5\r\n\r\nno", "Incomplete request body", 400)
 rejected("invalid content length", "POST /api/users HTTP/1.1\r\nHost: example.test\r\nContent-Length: 2x\r\n\r\n", "Invalid Content-Length", 400)
 rejected("duplicate content length", "POST /api/users HTTP/1.1\r\nHost: example.test\r\nContent-Length: 1\r\ncontent-length: 1\r\n\r\na", "Duplicate HTTP header", 400)
-rejected("transfer encoding", "POST /api/users HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: chunked\r\n\r\n", "Transfer-Encoding is not supported", 400)
+rejected("transfer encoding", "POST /api/users HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: gzip\r\n\r\n", "Transfer-Encoding is not supported", 501)
 rejected("pipelined bytes", "GET /health HTTP/1.1\r\nHost: example.test\r\n\r\nGET /health HTTP/1.1\r\nHost: example.test\r\n\r\n", "Unexpected data after request body", 400)
-rejected("unsupported version", "GET /health HTTP/1.0\r\nHost: example.test\r\n\r\n", "Only HTTP/1.1 is supported", 505)
+rejected("unsupported version", "GET /health HTTP/2.0\r\nHost: example.test\r\n\r\n", "HTTP version not supported", 505)
 rejected("oversized headers", "GET /health HTTP/1.1\r\nHost: example.test\r\nX-Test: " .. string.rep("a", http.MAX_HEADER_BYTES) .. "\r\n\r\n", "Request headers too large", 431)
 rejected("oversized body", "POST /health HTTP/1.1\r\nHost: example.test\r\nContent-Length: " .. (http.MAX_BODY_BYTES + 1) .. "\r\n\r\n", "Request body too large", 413)
 

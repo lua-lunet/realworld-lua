@@ -1,7 +1,7 @@
 -- Article routes for RealWorld API
 -- Handles article CRUD, tags, favorites
 
-local router = require("router")
+local router = require("lunet.http_router")
 local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")
