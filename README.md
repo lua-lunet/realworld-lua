@@ -4,6 +4,8 @@
 
 ### [Demo](https://demo.realworld.build/)&nbsp;&nbsp;&nbsp;&nbsp;[RealWorld](https://github.com/realworld-apps/realworld)
 
+[中文版](README-CN.md) | English
+
 Backend API built with **[lunet](https://github.com/lua-lunet/lunet)** (libuv + LuaJIT coroutine runtime) and **PostgreSQL**: CRUD, JWT auth, routing via a small hand-rolled router. Passes the RealWorld API compatibility suite (`specs/run-api-tests-hurl.sh`).
 
 ## How it works
