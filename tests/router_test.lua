@@ -1,4 +1,4 @@
-package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./?.lua;" .. package.path
 
 local json = require("lunet.jsonic")
 local router = require("lunet.http_router")

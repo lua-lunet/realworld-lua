@@ -1,4 +1,4 @@
-package.path = "./lib/?.lua;./?.lua;" .. package.path
+package.path = "./?.lua;" .. package.path
 
 local http = require("lunet.http")
 

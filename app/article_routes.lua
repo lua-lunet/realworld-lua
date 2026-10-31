@@ -5,7 +5,7 @@ local router = require("lunet.http_router")
 local json = require("lunet.jsonic")
 local db = require("db")
 local web = require("web")
-local crypto = require("lib.crypto")
+local sodium = require("lunet.sodium")
 
 local json_response = web.json_response
 local error_response = web.error_response
@@ -185,7 +185,7 @@ local function generate_slug(title)
     slug = slug:gsub("^%-+", "")
     slug = slug:gsub("%-+$", "")
     -- CSPRNG suffix keeps slugs unique across workers and concurrent requests
-    local suffix = crypto.random_bytes(4):gsub(".", function(c) return string.format("%02x", c:byte()) end)
+    local suffix = sodium.random(4):gsub(".", function(c) return string.format("%02x", c:byte()) end)
     return slug .. "-" .. suffix
 end
 

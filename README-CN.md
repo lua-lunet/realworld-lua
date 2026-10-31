@@ -25,12 +25,12 @@ sequenceDiagram
 
 - **lunet**：独立的 libuv + LuaJIT 运行时；`server.lua` 使用 `lunet.socket` 运行自己的 accept 循环，每连接一个协程
 - **lunet.postgres**：基于 libpq 的 PostgreSQL 驱动；查询运行在 libuv 线程池上，慢查询不会阻塞事件循环
-- **lib/crypto.lua**：通过 LuaJIT FFI 调用 libsodium —— Argon2id 密码哈希、HMAC-SHA256 JWT 签名、base64url、CSPRNG
+- **lunet.sodium / lunet.security**：通过发布自带的 crypto cdylib 调用 libsodium 原语 —— Argon2id 密码哈希（[app/password.lua](app/password.lua)）、CSPRNG、HS256 JWT 编码/校验
 - **lunet.jsonic**：请求 JSON 由 Rust jsonic 解析器解码；响应 JSON 由附带的 dkjson 编码（见 [归属](#attribution)）
 - **lunet.lnt_shared**：分片进程内字典，带原子计数器 —— 支撑 `/health` 上的请求指标（[app/metrics.lua](app/metrics.lua)）
-- **自定义路由器**（[app/router.lua](app/router.lua)）：带 `:param` 提取的路由表，由每请求上下文驱动（[lib/http_context.lua](lib/http_context.lua)）—— 并发协程下安全
-- **自定义 HTTP 解析**（[lib/http.lua](lib/http.lua)）：基于原始 socket 的请求/响应（反）序列化
-- **上下文适配器**（[lib/http_context.lua](lib/http_context.lua)）：小型原生 Lua 请求/响应表（`method`、`headers`、`status`、`write`）；它取代了早期的 `ngx` 形状兼容层，而非提供 OpenResty 运行时。
+- **lunet.http_router**：带 `:param` 提取的路由表 —— 并发协程下安全
+- **lunet.http**：基于原始 socket 的请求/响应（反）序列化
+- **lunet.http_context**：小型原生 Lua 请求/响应表（`method`、`headers`、`status`、`write`）；它取代了早期的 `ngx` 形状兼容层，而非提供 OpenResty 运行时。
 
 ## 资源占用
 
@@ -44,7 +44,7 @@ sequenceDiagram
 
 Lunet 提供 Node.js 级别的异步 I/O 能力，同时具备原生代码的资源效率。
 
-Lunet 列的测量上下文：macOS arm64，colima（Virtualization.Framework），lunet v0.15.1，PostgreSQL 16（Docker Compose）。Docker 镜像：`linux/arm64` 的 `make docker-build` 变体。运行时内存：容器内服务器进程的 `VmRSS`，空闲及 `hey -z 5s -c 16 /api/articles` 突发后（5,089 请求，全部 200；空闲稳定后）。冷启动：启动 → `/health` 200，主机原生（通过 `docker run` 同一检查为 121 ms，那是容器编排开销，而非应用启动）。
+Lunet 列的测量上下文：macOS arm64，colima（Virtualization.Framework），lunet v0.16.0，PostgreSQL 16（Docker Compose）。Docker 镜像：`linux/arm64` 的 `make docker-build` 变体。运行时内存：容器内服务器进程的 `VmRSS`，空闲及 `hey -z 5s -c 16 /api/articles` 突发后（5,089 请求，全部 200；空闲稳定后）。冷启动：启动 → `/health` 200，主机原生（通过 `docker run` 同一检查为 121 ms，那是容器编排开销，而非应用启动）。
 
 ## 十分钟垂直切片
 
@@ -72,26 +72,21 @@ Lunet 列的测量上下文：macOS arm64，colima（Virtualization.Framework）
 ├── server.lua              # 入口：lunet accept 循环，分派到 router
 ├── index.html               # 落地页
 ├── app/
-│   ├── router.lua          # 路由表、JSON 响应处理
 │   ├── routes.lua          # 路由注册
 │   ├── auth_routes.lua     # /api/users, /api/user
 │   ├── article_routes.lua  # /api/articles, comments, favorites, tags
 │   ├── profile_routes.lua  # /api/profiles
 │   ├── web.lua             # 共享助手（auth token 解析、响应）
 │   ├── db.lua              # 通过 lunet.postgres 的 SQL 查询
-│   ├── jwt.lua             # HS256 JWT 编解码，基于 lib/crypto
-│   ├── password.lua        # Argon2id 哈希，基于 lib/crypto
+│   ├── password.lua        # 通过 lunet.sodium 的 Argon2id 哈希
 │   ├── metrics.lua         # 通过 lunet.lnt_shared 的请求计数器，暴露于 /health
 │   ├── config.lua          # 环境变量解析
+│   ├── response.lua        # 路由器响应形状
 │   └── dotenv.lua          # .env 文件加载器
-├── lib/
-│   ├── crypto.lua          # libsodium FFI：哈希、HMAC、base64、CSPRNG
-│   ├── http.lua            # HTTP 请求解析 / 响应构建
-│   └── http_context.lua    # 传入 router.handle() 的每请求上下文
 ├── nginx.conf                # nginx 前端：静态、gzip、/api 代理（可选；make frontend）
 ├── frontend/                 # 获取的前端 docroot（gitignored；make frontend）
 ├── scripts/
-│   ├── lunet_fetch_release_v0.15.1.lua # 获取 lunet 发布到 .lunet/
+│   ├── lunet_fetch_release_v0.16.0.lua # 获取 lunet 发布到 .lunet/
 │   ├── frontend.sh           # 获取预构建前端到 frontend/
 │   └── bundle.sh             # 将发布 + 应用重新打包为自解压 .run
 ├── .lunet/                  # lunet 二进制与类型（gitignored；make deps 创建）
@@ -128,7 +123,7 @@ make bundle    # 将发布 + 应用重新打包为自解压 dist/*.run
 
 ## 二进制依赖（`.lunet/`）
 
-`make deps` 运行 `scripts/lunet_fetch_release_v0.15.1.lua`，从 [lunet releases](https://github.com/lua-lunet/lunet/releases) 下载并安装标记的 `v0.15.1` 发布到 `.lunet/v0.15.1/`。获取器校验归档 SHA-256 与发布元数据，原子安装到暂存目录，并且幂等：
+`make deps` 运行 `scripts/lunet_fetch_release_v0.16.0.lua`，从 [lunet releases](https://github.com/lua-lunet/lunet/releases) 下载并安装标记的 `v0.16.0` 发布到 `.lunet/v0.16.0/`。获取器校验归档 SHA-256 与发布元数据，原子安装到暂存目录，并且幂等：
 
 - `lunet-run` + `lunet.so`
 - 驱动 `lunet/{postgres,mysql,httpc,sqlite3,paxe}.so`
@@ -175,7 +170,7 @@ make frontend-stop
 
 [vanilla-pod-js/](vanilla-pod-js/) 是第二个前端选项：完整的 Conduit RealWorld UI，框架无关、无打包器的原生 JavaScript —— light-DOM web components、API 边界处 JTD 校验的冻结数据、零运行时依赖、无构建步骤。使用 `./scripts/frontend-vanilla-pod.sh` 安装，然后用 `make frontend`（nginx，[nginx.conf](nginx.conf)）提供服务。
 
-测量于 macOS arm64，lunet v0.15.1，PostgreSQL 16，浏览器页面加载的首页资源闭包（16 个文件：HTML + 主题 CSS + 所有 ES 模块）：
+测量于 macOS arm64，lunet v0.16.0，PostgreSQL 16，浏览器页面加载的首页资源闭包（16 个文件：HTML + 主题 CSS + 所有 ES 模块）：
 
 | 指标 | 值 |
 |------|----|
@@ -193,10 +188,10 @@ make frontend-stop
 
 后端按 [MIT](LICENSE) 授权。第三方素材：
 
-在 `.lunet/v0.15.1/`（均属 lunet 发布归档的一部分）：
+在 `.lunet/v0.16.0/`（均属 lunet 发布归档的一部分）：
 
-- **dkjson**（`.lunet/v0.15.1/lunet/dkjson-encode-v2.10.lua`）—— Lua 的 JSON 编解码，作者 David Kolf，[MIT](http://dkolf.de/dkjson-lua)。`lunet.jsonic` 的编码一半。
-- **jsonic**（`.lunet/v0.15.1/lunet/jsonic.lua` + `.lunet/v0.15.1/lunet/liblunet_jsonic.*`）—— 快速 JSON 解析器（[jsonic](https://github.com/g1mv/jsonic)，MIT/Apache-2.0），位于 lunet 的 FFI 绑定之后；解码一半。许可证文本：[lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.15.1/ext/jsonic)。
+- **dkjson**（`.lunet/v0.16.0/lunet/dkjson-encode-v2.10.lua`）—— Lua 的 JSON 编解码，作者 David Kolf，[MIT](http://dkolf.de/dkjson-lua)。`lunet.jsonic` 的编码一半。
+- **jsonic**（`.lunet/v0.16.0/lunet/jsonic.lua` + `.lunet/v0.16.0/lunet/liblunet_jsonic.*`）—— 快速 JSON 解析器（[jsonic](https://github.com/g1mv/jsonic)，MIT/Apache-2.0），位于 lunet 的 FFI 绑定之后；解码一半。许可证文本：[lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.16.0/ext/jsonic)。
 
 在 `frontend/`（可选，未提交）：
 

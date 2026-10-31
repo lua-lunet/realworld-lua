@@ -3,7 +3,7 @@
 # Pure binary-dependency build: no xmake, no cargo, no toolchain.
 #
 # Stage 1 runs the official fetcher (Lua 5.1 script), which downloads,
-# digest-verifies and installs the tagged lunet release into .lunet/v0.15.1/.
+# digest-verifies and installs the tagged lunet release into .lunet/v0.16.0/.
 # Stage 2 carries only the installed runtime and the app.
 #
 # Upstream publishes linux-amd64 and linux-arm64 archives (since v0.6.1); the
@@ -20,28 +20,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY scripts/lunet_fetch_release_v0.15.1.lua scripts/
-RUN lua5.1 scripts/lunet_fetch_release_v0.15.1.lua
+COPY scripts/lunet_fetch_release_v0.16.0.lua scripts/
+RUN lua5.1 scripts/lunet_fetch_release_v0.16.0.lua
 
 # Runtime: only the shared libraries the vendored .so files link against
 FROM --platform=linux/amd64 debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# libsodium needs an unversioned symlink because lib/crypto.lua FFI-loads it
-# (ffi.load("sodium")) for Argon2id/HMAC — apt's libsodium23 ships only the
-# versioned libsodium.so.23. This is unrelated to PAXE, which this app does
-# not use.
+# The app hashes passwords through lunet.sodium, whose cdylib
+# (liblunet_crypto.so) statically links libsodium: the image ships no
+# libsodium package and nothing ffi.loads a system libsodium.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
-        libsodium23 \
         libuv1 \
         libsqlite3-0 \
         libluajit-5.1-2 \
         ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && sodium_lib="$(ldconfig -p | grep -m1 libsodium.so | awk '{print $NF}')" \
-    && ln -s "$sodium_lib" "$(dirname "$sodium_lib")/libsodium.so"
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

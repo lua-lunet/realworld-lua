@@ -1,7 +1,7 @@
 -- Conduit API - RealWorld Example Application
 -- Built with lunet (libuv + LuaJIT coroutine runtime)
 
-package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./?.lua;" .. package.path
 -- lunet-run prepends its own directory to package.path/cpath, so lunet.*
 -- modules resolve without app-side configuration.
 

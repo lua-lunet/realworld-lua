@@ -1,6 +1,6 @@
-package.path = "./app/?.lua;./lib/?.lua;./?.lua;" .. package.path
+package.path = "./app/?.lua;./?.lua;" .. package.path
 
-local jwt = require("jwt")
+local security = require("lunet.security")
 
 local total = 0
 
@@ -9,6 +9,7 @@ local function check(name, condition)
     if not condition then error("FAIL: " .. name, 2) end
 end
 
+local jwt = security.jwt
 local secret = "unit-test-secret"
 local valid_token = assert(jwt.encode({ id = "user-1", exp = os.time() + 60 }, secret))
 local payload, err = jwt.decode(valid_token, secret)

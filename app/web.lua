@@ -1,7 +1,7 @@
 -- Shared HTTP helpers for route modules
 
 local db = require("db")
-local jwt = require("jwt")
+local security = require("lunet.security")
 local response = require("response")
 
 local web = {}
@@ -35,7 +35,7 @@ function web.get_current_user(env_config, ctx)
         return nil, nil, { token = { "is invalid" } }
     end
 
-    local payload = jwt.decode(token, env_config.JWT_SECRET)
+    local payload = security.jwt.decode(token, env_config.JWT_SECRET)
     if not payload then
         return nil, nil, { token = { "is invalid" } }
     end

@@ -2,7 +2,7 @@
 -- Uses JWT for authentication and lunet.postgres for PostgreSQL
 
 local router = require("lunet.http_router")
-local jwt = require("jwt")
+local security = require("lunet.security")
 
 local json = require("lunet.jsonic")
 local db = require("db")
@@ -102,11 +102,11 @@ router.route("POST", "/api/users", function(env_config, ctx, params)
         exp = os.time() + JWT_EXPIRY
     }
     
-    local token, err = jwt.encode(token_payload, env_config.JWT_SECRET, "HS256")
+    local token, err = security.jwt.encode(token_payload, env_config.JWT_SECRET)
     if not token then
         return error_response(500, { body = { "Failed to create token: " .. err } })
     end
-    
+
     -- Return user with token
     -- Use json.null for null values (nil would be omitted by JSON encoder)
     return json_response(201, {
@@ -164,11 +164,11 @@ router.route("POST", "/api/users/login", function(env_config, ctx, params)
         exp = os.time() + JWT_EXPIRY
     }
     
-    local token, err = jwt.encode(token_payload, env_config.JWT_SECRET, "HS256")
+    local token, err = security.jwt.encode(token_payload, env_config.JWT_SECRET)
     if not token then
         return error_response(500, { body = { "Failed to create token: " .. err } })
     end
-    
+
     -- Get user profile (without password hash)
     local profile, err = db.get_user_by_id(env_config, found_user.id)
     if err then
