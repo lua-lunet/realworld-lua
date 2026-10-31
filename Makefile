@@ -1,6 +1,6 @@
 all: init lint start test
 
-LUNET_TAG := v0.15.1
+LUNET_TAG := v0.16.0-rc1
 LUNET_RUN := .lunet/$(LUNET_TAG)/lunet-run
 
 PID_FILE = target/lunet.pid
