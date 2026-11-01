@@ -26,21 +26,16 @@ end
 -- @return user, token, errors (errors is a RealWorld errors table when user is nil)
 function web.get_current_user(env_config, ctx)
     local auth_header = ctx.headers["authorization"]
-    if not auth_header then
-        return nil, nil, { token = { "is missing" } }
-    end
-
-    local token = auth_header:match("^Token%s+([^%s]+)$")
-    if not token then
+    local claims, kind = security.jwt.bearer(auth_header, env_config.JWT_SECRET, { "Token" })
+    if not claims then
+        if kind == "missing" then
+            return nil, nil, { token = { "is missing" } }
+        end
         return nil, nil, { token = { "is invalid" } }
     end
 
-    local payload = security.jwt.decode(token, env_config.JWT_SECRET)
-    if not payload then
-        return nil, nil, { token = { "is invalid" } }
-    end
-
-    local user = web.fetched(db.get_user_by_id(env_config, payload.id))
+    local token = auth_header:match("^%S+%s+(%S+)%s*$")
+    local user = web.fetched(db.get_user_by_id(env_config, claims.id))
     if not user then
         return nil, nil, { token = { "is invalid" } }
     end
