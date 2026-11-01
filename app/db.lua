@@ -3,84 +3,45 @@
 -- Every function takes env_config (the resolved config table) as its first argument
 
 local native = require("lunet.postgres")
-local lunet = require("lunet")
 
 -- LuaJIT is Lua 5.1: unpack is global there, table.unpack on 5.2-compat builds
 local unpack = table.unpack or unpack
 
 local db = {}
 
--- Connection pool: array-backed and create-on-demand. These table operations
--- never yield, so reserving a connection slot is atomic between Lunet coroutines.
-local idle_connections = {}
+-- Connection pool: a single lunet.postgres pool handle per unique connection
+-- spec (host:port:db:user). The driver round-robins across pool_size members
+-- for autocommit statements; transactions take one member out of rotation via
+-- postgres.checkout/release so BEGIN/COMMIT/ROLLBACK land on one session.
+-- PGPOOL_MAX now means pool member count (default 40).
+local pools = {}
 
--- MAX_IDLE_CONNECTIONS is only the number of unused connections we retain for
--- reuse. It is not a limit on the number of PostgreSQL connections we open.
-local MAX_IDLE_CONNECTIONS = 100
+local function pool_key(env_config)
+    return (env_config.PGHOST or "") .. ":" .. (env_config.PGPORT or "")
+        .. ":" .. (env_config.PGDATABASE or "") .. ":" .. (env_config.PGUSER or "")
+end
 
--- MAX_OPEN_CONNECTIONS is the hard cap for idle, checked-out, and connections
--- currently opening. At the cap, callers yield briefly instead of opening more.
--- It must stay below the server's max_connections (PostgreSQL's default is 100,
--- which also reserves superuser slots), or the server refuses connections under
--- pool pressure and requests fail. Override with PGPOOL_MAX.
-local MAX_OPEN_CONNECTIONS = tonumber(os.getenv("PGPOOL_MAX")) or 40
-local open_connections = 0
-
--- Open a new connection using values from the passed-in env_config table
-local function new_connection(env_config)
+local function get_pool(env_config)
+    local key = pool_key(env_config)
+    local pool = pools[key]
+    if pool then
+        return pool, nil
+    end
+    local pool_size = tonumber(os.getenv("PGPOOL_MAX")) or 40
     local conn, err = native.open({
         host = env_config.PGHOST,
         port = tonumber(env_config.PGPORT),
         database = env_config.PGDATABASE,
         user = env_config.PGUSER,
         password = env_config.PGPASSWORD,
+        pool_size = pool_size,
     })
     if not conn then
         io.stderr:write("PostgreSQL connect failed: ", tostring(err), "\n")
         return nil, "Failed to connect: " .. tostring(err)
     end
+    pools[key] = conn
     return conn, nil
-end
-
-local function discard_conn(conn)
-    -- native.close does not yield. Always decrement our reservation even when
-    -- close reports an unexpected error, so the pool cannot permanently block.
-    pcall(native.close, conn)
-    open_connections = open_connections - 1
-end
-
-local function release_conn(conn)
-    if #idle_connections < MAX_IDLE_CONNECTIONS then
-        table.insert(idle_connections, conn)
-    else
-        discard_conn(conn)
-    end
-end
-
-local function get_conn(env_config)
-    while true do
-        local conn = table.remove(idle_connections)
-        if conn then
-            return conn, nil
-        end
-
-        if open_connections < MAX_OPEN_CONNECTIONS then
-            -- Reserve before native.open yields, so concurrent coroutines
-            -- cannot race past MAX_OPEN_CONNECTIONS.
-            open_connections = open_connections + 1
-            local conn, err = new_connection(env_config)
-            if not conn then
-                open_connections = open_connections - 1
-                return nil, err
-            end
-            return conn, nil
-        end
-
-        -- Lunet has no condition-variable primitive. Sleeping yields this
-        -- request coroutine and provides cooperative backpressure until a
-        -- checked-out connection is released or discarded.
-        lunet.sleep(1)
-    end
 end
 
 -- Execute a query
@@ -89,18 +50,26 @@ end
 -- @return result: table of rows, or nil
 -- @return err: error message, or nil
 function db.query(env_config, sql, ...)
-    local conn, err = get_conn(env_config)
-    if not conn then
+    local pool, err = get_pool(env_config)
+    if not pool then
         return nil, err
     end
 
-    local res, qerr = native.query(conn, sql, ...)
-    if not res then
-        discard_conn(conn)
-        return nil, qerr
+    local conn, cerr = native.checkout(pool)
+    if not conn then
+        return nil, cerr
     end
 
-    release_conn(conn)
+    local res, qerr = native.query(conn, sql, ...)
+    -- release back to the pool (best-effort; errors here are logged only)
+    local rerr = native.release(conn)
+    if rerr then
+        io.stderr:write("PostgreSQL release failed: ", tostring(rerr), "\n")
+    end
+
+    if not res then
+        return nil, qerr
+    end
     return res, nil
 end
 
@@ -121,14 +90,20 @@ end
 -- The callback receives tx, whose query/query_row methods keep all work on the
 -- same checked-out connection. A nil/false value or Lua error rolls back.
 function db.transaction(env_config, work)
-    local conn, err = get_conn(env_config)
-    if not conn then
+    local pool, err = get_pool(env_config)
+    if not pool then
         return nil, err
+    end
+
+    local conn, cerr = native.checkout(pool)
+    if not conn then
+        return nil, cerr
     end
 
     local began, begin_err = native.query(conn, "BEGIN")
     if not began then
-        discard_conn(conn)
+        -- failed BEGIN: discard the member
+        pcall(native.close, conn)
         return nil, begin_err
     end
 
@@ -147,14 +122,15 @@ function db.transaction(env_config, work)
     local function rollback()
         local rolled_back = native.query(conn, "ROLLBACK")
         if rolled_back then
-            release_conn(conn)
+            local rerr = native.release(conn)
+            if rerr then
+                io.stderr:write("PostgreSQL release failed: ", tostring(rerr), "\n")
+            end
         else
-            discard_conn(conn)
+            pcall(native.close, conn)
         end
     end
 
-    -- LuaJIT's pcall is yieldable, so database queries inside work remain
-    -- asynchronous while this guard still releases the connection on errors.
     local ok, value, work_err = pcall(work, tx)
     if not ok then
         rollback()
@@ -168,11 +144,14 @@ function db.transaction(env_config, work)
     local committed, commit_err = native.query(conn, "COMMIT")
     if not committed then
         -- A failed COMMIT leaves the session state unknown; never reuse it.
-        discard_conn(conn)
+        pcall(native.close, conn)
         return nil, commit_err
     end
 
-    release_conn(conn)
+    local rerr = native.release(conn)
+    if rerr then
+        io.stderr:write("PostgreSQL release failed: ", tostring(rerr), "\n")
+    end
     return value, work_err
 end
 
@@ -801,7 +780,7 @@ function db.get_feed(env_config, user_id, limit, offset)
                (SELECT COUNT(*) FROM article_favorites f WHERE f.article_id = a.id) as favorites_count,
                (SELECT COUNT(*) FROM article_tags at2 WHERE at2.article_id = a.id) as tag_count
         FROM articles a
-        JOIN users u ON a.author_id = u.id
+        JOIN users u ON author_id = u.id
         WHERE a.author_id IN (SELECT followee_id FROM user_follows WHERE follower_id = $1)
         OR a.author_id = $1
         ORDER BY a.created_at DESC
