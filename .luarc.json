@@ -1,5 +1,5 @@
 {
-  "workspace.library": [".lunet/v0.16.0/types"],
+  "workspace.library": [".lunet/v0.17.3/types"],
   "runtime.path": ["app/?.lua", "?.lua"],
   "diagnostics.globals": [],
   "runtime.version": "LuaJIT"
