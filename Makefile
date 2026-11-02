@@ -108,9 +108,10 @@ frontend:
 	@command -v nginx >/dev/null 2>&1 || { echo "ERROR: nginx is not installed. Install nginx first (e.g. brew install nginx)."; exit 1; }
 	@mkdir -p target; \
 	sed -e "s/^    listen 8083;/    listen $(FRONTEND_PORT);/" \
-	    -e "s|proxy_pass http://127.0.0.1:8081;|proxy_pass http://127.0.0.1:$(BACKEND_PORT);|" \
+	    -e "s/^    server 127.0.0.1:8081;/    server 127.0.0.1:$(BACKEND_PORT);/" \
 	    nginx.conf > $(NGINX_CONF); \
-	grep -q "listen $(FRONTEND_PORT);" $(NGINX_CONF) || { echo "ERROR: failed to template $(NGINX_CONF)"; exit 1; }
+	grep -q "listen $(FRONTEND_PORT);" $(NGINX_CONF) || { echo "ERROR: failed to template $(NGINX_CONF)"; exit 1; } ; \
+	grep -q "server 127.0.0.1:$(BACKEND_PORT);" $(NGINX_CONF) || { echo "ERROR: failed to template backend port in $(NGINX_CONF)"; exit 1; }
 	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
 		echo "nginx already running (PID $$(cat $(NGINX_PID_FILE)))."; \
 	else \
@@ -127,7 +128,7 @@ bundle:
 frontend-stop:
 	@mkdir -p target; \
 	sed -e "s/^    listen 8083;/    listen $(FRONTEND_PORT);/" \
-	    -e "s|proxy_pass http://127.0.0.1:8081;|proxy_pass http://127.0.0.1:$(BACKEND_PORT);|" \
+	    -e "s/^    server 127.0.0.1:8081;/    server 127.0.0.1:$(BACKEND_PORT);/" \
 	    nginx.conf > $(NGINX_CONF)
 	@if [ -f $(NGINX_PID_FILE) ] && kill -0 $$(cat $(NGINX_PID_FILE)) 2>/dev/null; then \
 		$(NGINX) -s quit; \

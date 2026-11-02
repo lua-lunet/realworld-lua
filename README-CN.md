@@ -159,7 +159,16 @@ make frontend-stop
 需要 `PATH` 上的 nginx（macOS 用 `brew install nginx`）。打开 <http://localhost:8083/>。页面通过代理同源调用 API。端口覆盖，若任一默认端口冲突：`make frontend FRONTEND_PORT=18443 BACKEND_PORT=8084`。
 
 - [scripts/frontend.sh](scripts/frontend.sh) 获取固定的前端（见 [归属](#attribution)）并打补丁：API base → `/api`；死掉的主题 CDN 链接 → 附带的经典 Conduit CSS。
-- `nginx.conf` 提供静态前端并把 `/api/` 代理到后端。高端口的演示级默认；生产环境请适配到站点配置而非原样运行。
+- `nginx.conf` 提供静态前端并把 `/api/` 代理到后端。边缘配置均显式声明，遵循 lunet
+  v0.18.1 `ext/http/README.md` 与 `docs/SECURITY_ARCHITECTURE.md` 的原则：解析器
+  上限与 lunet 对齐（`large_client_header_buffers 4 8k` = 32 KiB 请求头段、
+  `client_max_body_size 1m` = 1 MiB 请求体），确保边缘总是先行应答、lunet 绝不是链
+  路上最严格的环节；防滴漏超时（`client_header_timeout` / `client_body_timeout
+  10s`）；特意声明 `proxy_request_buffering on`；并通过 `upstream` 池（`keepalive
+  32`）、`proxy_http_version 1.1` 与空的逐跳 `Connection` 头实现真正的上游
+  keep-alive —— 显式声明默认值，因为它们随 nginx 版本变化。nginx 仅作示例
+ （OpenResty、Envoy、Caddy、Traefik、HAProxy 等同样可用）：部署哪个边缘，就读其最
+  新文档。高端口的演示级默认；生产环境请适配到站点配置而非原样运行。
 - 通过前端运行 Hurl 套件：`HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
 
 ## vanilla-pod-js 前端（已测量）

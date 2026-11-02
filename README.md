@@ -210,6 +210,17 @@ machine: `make frontend FRONTEND_PORT=18443 BACKEND_PORT=8084`.
   [Attribution](#attribution)) and patches: API base → `/api`; dead theme-CDN link →
   vendored classic Conduit CSS.
 - `nginx.conf` serves the static frontend and proxies `/api/` to the backend.
+  Edge settings are stated explicitly, following the doctrine in lunet v0.18.1's
+  `ext/http/README.md` and `docs/SECURITY_ARCHITECTURE.md`: parser caps pinned to
+  match lunet's (`large_client_header_buffers 4 8k` = 32 KiB header section,
+  `client_max_body_size 1m` = 1 MiB body) so the edge always answers first and
+  lunet is never the strictest link; drip timeouts (`client_header_timeout` /
+  `client_body_timeout 10s`); `proxy_request_buffering on` stated on purpose; and
+  real upstream keep-alive via an `upstream` pool (`keepalive 32`) with
+  `proxy_http_version 1.1` and an empty hop-by-hop `Connection` header — stating
+  defaults on purpose, since they change across nginx versions. nginx is named
+  for illustration only (OpenResty, Envoy, Caddy, Traefik, HAProxy exist): always
+  read the latest documentation of whichever edge you deploy.
   Demo-grade defaults on a high port; for production, adapt it into your
   site's configuration rather than running it as-is.
 - Hurl suite through the frontend: `HOST=http://localhost:8083 bash specs/run-api-tests-hurl.sh`
