@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1
+#
+# Shared base for the edge e2e suites (specs/edge/): the realworld-lua demo
+# app pinned at its shipped lunet tag, with nginx installed and configured as
+# the reference edge. Adapted from the lua-lunet/lunet v0.18.2 worked edge
+# example (ext/http/edge/Dockerfile.base, MIT); the differences:
+#   - clones realworld-lua at tag v0.18.2 (the current bump, testing the
+#     shipped state) and runs the matching release fetcher,
+#   - typed as the rig for this repo's edge e2e tickets.
+#
+# The fetcher digest-verifies the runtime from the lunet release; no .env
+# is needed: PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD/JWT_SECRET come from
+# docker run environment (see run-edge-suite.sh).
+#
+# Build: docker build -f specs/edge/Dockerfile.base -t lunet-edge-base specs/edge
+#
+FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        lua5.1 \
+        git \
+        libpq5 \
+        libuv1 \
+        libsqlite3-0 \
+        libluajit-5.1-2 \
+        nginx \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/log/nginx
+
+# The pinned app: realworld-lua at the bare lunet-matched tag. The fetcher
+# digest-verifies the lunet runtime into .lunet/.
+WORKDIR /app
+RUN git clone --depth 1 --branch v0.18.2 \
+        https://github.com/lua-lunet/realworld-lua . \
+    && lua5.1 scripts/lunet_fetch_release_v0.18.2.lua \
+    && chmod +x start.sh
+
+# Reference edge configuration (security-oriented: request buffering on,
+# body cap, tightened read timeouts, loopback-only upstream) and the
+# app-then-edge entrypoint shared by all edge variants.
+COPY conf/nginx-edge.conf /etc/nginx/nginx-edge.conf
+COPY entrypoint-edge.sh /usr/local/bin/entrypoint-edge.sh
+RUN chmod +x /usr/local/bin/entrypoint-edge.sh
+
+ENV LUNET_PORT=8081
+ENV EDGE_KIND=nginx
+
+EXPOSE 80
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-edge.sh"]
