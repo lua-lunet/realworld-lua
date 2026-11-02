@@ -48,7 +48,7 @@ Lunet provides the async I/O capabilities of Node.js with the resource
 efficiency of native code.
 
 Measurement context for the Lunet column: macOS arm64, colima
-(Virtualization.Framework), lunet v0.17.3, PostgreSQL 16 (Docker Compose).
+(Virtualization.Framework), lunet v0.18.1, PostgreSQL 16 (Docker Compose).
 Docker image: `make docker-build` variant for `linux/arm64`. Runtime
 memory: `VmRSS` of the server process inside the container, idle and after
 a `hey -z 5s -c 16 /api/articles` burst (5,089 requests, all 200; stable
@@ -124,7 +124,7 @@ that user's article.
 ├── nginx.conf                # nginx front: statics, gzip, /api proxy (optional; make frontend)
 ├── frontend/                 # Fetched frontend docroot (gitignored; make frontend)
 ├── scripts/
-│   ├── lunet_fetch_release_v0.17.3.lua # Fetches the lunet release into .lunet/
+│   ├── lunet_fetch_release_v0.18.1.lua # Fetches the lunet release into .lunet/
 │   ├── frontend.sh           # Fetches the prebuilt frontend into frontend/
 │   └── bundle.sh             # Repacks release + app into a self-extracting .run
 ├── .lunet/                  # lunet binaries and types (gitignored; created by make deps)
@@ -161,9 +161,9 @@ The local OpenAPI server is `http://localhost:8081/api`. Run `make api-docs` and
 
 ## Binary dependencies (`.lunet/`)
 
-`make deps` runs `scripts/lunet_fetch_release_v0.17.3.lua` to download and install the
-tagged `v0.17.3` release from [lunet releases](https://github.com/lua-lunet/lunet/releases)
-into `.lunet/v0.17.3/`. The fetcher verifies archive SHA-256 against release metadata,
+`make deps` runs `scripts/lunet_fetch_release_v0.18.1.lua` to download and install the
+tagged `v0.18.1` release from [lunet releases](https://github.com/lua-lunet/lunet/releases)
+into `.lunet/v0.18.1/`. The fetcher verifies archive SHA-256 against release metadata,
 installs atomically into a staging directory, and is idempotent:
 
 - `lunet-run` + `lunet.so`
@@ -227,7 +227,7 @@ dependencies, and no build step. Install it with
 `./scripts/frontend-vanilla-pod.sh`, then serve it with `make frontend`
 (nginx, [nginx.conf](nginx.conf)).
 
-Measured on macOS arm64, lunet v0.17.3, PostgreSQL 16, browser page-load asset
+Measured on macOS arm64, lunet v0.18.1, PostgreSQL 16, browser page-load asset
 closure of the home route (16 files: HTML + theme CSS + all ES modules):
 
 | Metric | Value |
@@ -249,13 +249,13 @@ settings save, and the editor (create article).
 
 The backend is licensed [MIT](LICENSE). Third-party material:
 
-In `.lunet/v0.17.3/` (all part of the lunet release archive):
+In `.lunet/v0.18.1/` (all part of the lunet release archive):
 
-- **dkjson** (`.lunet/v0.17.3/lunet/dkjson-encode-v2.10.lua`) — JSON encode/decode for Lua by
+- **dkjson** (`.lunet/v0.18.1/lunet/dkjson-encode-v2.10.lua`) — JSON encode/decode for Lua by
   David Kolf, [MIT](http://dkolf.de/dkjson-lua). The encode half of `lunet.jsonic`.
-- **jsonic** (`.lunet/v0.17.3/lunet/jsonic.lua` + `.lunet/v0.17.3/lunet/liblunet_jsonic.*`) — fast JSON parser
+- **jsonic** (`.lunet/v0.18.1/lunet/jsonic.lua` + `.lunet/v0.18.1/lunet/liblunet_jsonic.*`) — fast JSON parser
   ([jsonic](https://github.com/g1mv/jsonic), MIT/Apache-2.0) behind lunet's FFI binding;
-  the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.17.3/ext/jsonic).
+  the decode half. License texts: [lunet `ext/jsonic/`](https://github.com/lua-lunet/lunet/tree/v0.18.1/ext/jsonic).
 
 In `frontend/` (optional, not committed):
 
