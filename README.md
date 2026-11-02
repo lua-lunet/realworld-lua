@@ -289,6 +289,25 @@ RealWorld name and API spec: [RealWorld](https://github.com/realworld-apps/realw
 doubling 1 → 64; fails on any HTTP 500. `server.lua` has no load shedding — under
 sustained overload it queues rather than returning 503.
 
+## Versioning
+
+Tags follow the lunet runtime — we keep no independent chronology of our own.
+
+- **Bump release** (tag `v0.18.1`; one per lunet version, always the bare
+  version number): pins the new lunet runtime. Notes state what is new in
+  lunet and what that changed in the demo app — the API surfaces adopted
+  and the local code deleted.
+- **Improvement releases** (tag `v0.18.1-<short-sha>`): demo-app or docs
+  changes between bumps, no new lunet. The sha is the commit carrying the
+  change. Notes are the full diff against the bump tag — everything that
+  has changed since the upgrade, however many interim releases passed.
+- **Rule for consumers: use the latest release.** When a new improvement
+  release supersedes an older one, the older interim tag and release are
+  deleted; only the bump tag and the latest `-sha` release survive.
+
+So `v0.18.1` is the baseline and `v0.18.1-7f8df8c` reads as "the v0.18.1
+upgrade plus the change in commit `7f8df8c`".
+
 ## License
 
 [MIT](LICENSE) — third-party components under their own licenses, see [Attribution](#attribution).
