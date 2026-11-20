@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'docs/**'
   pull_request:
     branches: [main]
 
@@ -13,8 +17,14 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+# Supersede in-flight runs for the same ref; tag pushes (releases) are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: "${{ !startsWith(github.ref, 'refs/tags/') }}"
+
 jobs:
   lint:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +33,7 @@ jobs:
       - run: mise exec -- lua-language-server --check . --checklevel=Warning
 
   unit-test:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +51,7 @@ jobs:
       - run: make unit-test
 
   test:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -104,6 +116,7 @@ jobs:
   # (request metrics on /health), running on Windows remains blocked upstream
   # until Windows builds or fallback implementations are provided.
   bundle:
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +195,7 @@ jobs:
           retention-days: 14
 
   release:
+    timeout-minutes: 25
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [lint, unit-test, test, bundle]
     runs-on: ubuntu-24.04
